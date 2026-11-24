@@ -12,8 +12,11 @@ const http = require('../core/http');
 
 const VIA_RELAY = /^https:\/\/query[12]\.finance\.yahoo\.com\//;
 const DIRECT = /^https:\/\/api\.exchange\.coinbase\.com\//;
+const SYNC_BASE = location.origin + '/sync';
 http.setFetch((url, opts) => {
   const o = Object.assign({}, opts || {});
+  // sync codes go to this site's own /sync service, with their JSON body
+  if (url.startsWith(SYNC_BASE + '/')) return fetch(url, o);
   // browsers set their own User-Agent; extra headers would also trigger CORS preflights
   const accept = o.headers && (o.headers.Accept || o.headers.accept);
   o.headers = accept ? { Accept: accept } : {};
@@ -24,6 +27,7 @@ http.setFetch((url, opts) => {
 
 const { PaperAccount } = require('../core/paper');
 const { createApi } = require('../core/api');
+const { Sync } = require('../core/sync');
 
 const KEY = 'pd.account.v1';
 class PhoneAccount extends PaperAccount {
@@ -40,6 +44,14 @@ class PhoneAccount extends PaperAccount {
 }
 
 const account = new PhoneAccount({});
+const SYNC_KEY = 'pd.sync.v1';
+account.sync = new Sync(account, {
+  base: SYNC_BASE,
+  store: {
+    read() { try { return JSON.parse(localStorage.getItem(SYNC_KEY)); } catch (e) { return null; } },
+    write(v) { try { if (v == null) localStorage.removeItem(SYNC_KEY); else localStorage.setItem(SYNC_KEY, JSON.stringify(v)); } catch (e) { /* storage full */ } },
+  },
+});
 const api = createApi(account);
 const clone = (x) => (x === undefined ? x : typeof structuredClone === 'function' ? structuredClone(x) : JSON.parse(JSON.stringify(x)));
 
@@ -62,12 +74,16 @@ async function tick() {
   try { await account.tick(); } catch (e) { /* network hiccup: next tick */ } finally { ticking = false; }
 }
 setInterval(() => { if (!document.hidden) tick(); }, 2000);
-document.addEventListener('visibilitychange', () => { if (document.hidden) account.saveNow(); else tick(); });
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) { account.saveNow(); return; }
+  account.sync.lastPull = 0; // back on screen: check for trades made on the other device
+  tick();
+});
 addEventListener('pagehide', () => account.saveNow());
 
 window.Engine = { call, onEvent, tick };
 
-}, {"../core/http":"core/http.js","../core/paper":"core/paper.js","../core/api":"core/api.js"}],
+}, {"../core/http":"core/http.js","../core/paper":"core/paper.js","../core/api":"core/api.js","../core/sync":"core/sync.js"}],
 "core/http.js": [function (module, exports, require) {
 'use strict';
 // Tiny HTTP JSON helper with a swappable fetch implementation. Inside the
@@ -109,7 +125,28 @@ async function getJSON(url, options) {
   }
 }
 
-module.exports = { getJSON, setFetch, BROWSER_UA };
+// JSON request for PaperDesk's own sync service: returns { status, json } for any HTTP status, so
+// callers can handle 404 and 409 themselves. Throws only on network errors and timeouts.
+async function requestJSON(method, url, body, options) {
+  const opts = options || {};
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), opts.timeoutMs || 15000);
+  try {
+    const headers = { Accept: 'application/json' };
+    if (body !== undefined) headers['Content-Type'] = 'application/json';
+    const res = await fetchImpl(url, { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: controller.signal });
+    let json = null;
+    try { json = await res.json(); } catch (e) { json = null; }
+    return { status: res.status, json };
+  } catch (e) {
+    if (e && e.name === 'AbortError') throw new Error('The sync service took too long to answer.');
+    throw new Error('Could not reach the sync service. Check your internet connection.');
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+module.exports = { getJSON, requestJSON, setFetch, BROWSER_UA };
 
 }, {}],
 "core/paper.js": [function (module, exports, require) {
@@ -145,6 +182,12 @@ const US_INDEX = new Set(['SPY', 'QQQ', 'IWM', 'MES', 'MNQ']);
 // see RESEARCH.md round 20, so those alerts say so); 'tested' alerts only on the strategy's own
 // exits (the ones the research tested); 'off' never alerts.
 const SELL_MODES = ['off', 'tested', 'all'];
+// Beast Mode (blake's secret code, entered under Settings > Enter a code): while it is on, every
+// trade placed closes as a winner, at its target or one risk unit (1R) in profit, whichever the
+// real exit beats. It is a toy: those trades are tagged, shown with a BEAST badge and left out of
+// the stats, the mistakes panel and everything else that measures how you trade.
+const BEAST_CODE = 'beastmode99898';
+function isBeastCode(code) { return String(code || '').toLowerCase().replace(/\s+/g, '') === BEAST_CODE; }
 const EXIT_WORDS = { 'exit rule': 'its exit rule fired', 'trailing stop': 'price closed past its trailing stop', 'time limit': 'it reached its time limit' };
 
 function nowSec() { return Math.floor(Date.now() / 1000); }
@@ -309,6 +352,14 @@ class PaperAccount extends EventEmitter {
     this.save();
     return { ok: true, sellAlerts: mode };
   }
+  setBeast(on) {
+    this.state.beast = !!on;
+    this.save();
+    this.emit('event', { type: 'beast', on: this.state.beast, sound: this.state.beast ? 'win' : 'toggle', confetti: this.state.beast,
+      message: this.state.beast ? 'Beast Mode is on: every trade you place now closes as a winner. Those trades are tagged and kept out of your stats.' : 'Beast Mode is off. Trades win and lose for real again.' });
+    return { ok: true, beast: this.state.beast };
+  }
+
   guardView() {
     const on = this.guardOn();
     return {
@@ -458,6 +509,7 @@ class PaperAccount extends EventEmitter {
         concerns: Array.isArray(params.concerns) ? params.concerns.slice(0, 6).map((c) => ({ tone: c && c.tone === 'bad' ? 'bad' : 'warn', text: String((c && c.text) || '').slice(0, 300) })) : null,
         stop0: pv.stop,
         managed: params.source === 'suggested' && params.strategy && params.tf && params.managed ? { strategy: params.strategy, tf: params.tf } : null,
+        beast: this.state.beast ? true : undefined,
       };
       if (type === 'market') {
         const pos = this.openPosition(base, live.price, 'market');
@@ -492,6 +544,7 @@ class PaperAccount extends EventEmitter {
       riskUsd: base.stop != null ? Math.abs(fill - base.stop) * base.qty * inst.multiplier * q2u : null,
       mfe: 0, mae: 0,
     });
+    if (pos.beast || this.state.beast) pos.beast = true; else delete pos.beast;
     this.state.positions.push(pos);
     if (this.state.challenge) this.state.challenge.tradedToday = true;
     this.save();
@@ -517,7 +570,12 @@ class PaperAccount extends EventEmitter {
       const live = await this.livePrice(pos.symbol);
       raw = live.price;
     }
-    const exit = roundPrice(inst, raw - pos.dir * slippage(inst, raw));
+    let exit = roundPrice(inst, raw - pos.dir * slippage(inst, raw));
+    if (pos.beast) {
+      const w = beastExit(pos, inst, exit);
+      exit = w.exit;
+      if (w.forced) reason = pos.target != null ? 'target' : 'beast mode';
+    }
     const fee = feeUsd(inst, exit, pos.qty);
     const gross = (exit - pos.entry) * pos.dir * pos.qty * inst.multiplier * quoteToUsd(inst, exit);
     const pnl = gross - fee - pos.feesPaid;
@@ -533,7 +591,7 @@ class PaperAccount extends EventEmitter {
     }
     this.state.history.unshift(rec);
     if (this.state.history.length > 500) this.state.history.length = 500;
-    if (reason === 'manual' && (pos.stop != null || pos.managed)) {
+    if (reason === 'manual' && !pos.beast && (pos.stop != null || pos.managed)) {
       const g = this.state.ghosts || (this.state.ghosts = []);
       g.push({ id: rec.id, symbol: pos.symbol, dir: pos.dir, qty: pos.qty, entry: pos.entry, stop: pos.stop, target: pos.target,
         managed: pos.managed, closeAt: pos.closeAt, openedAt: pos.openedAt, since: rec.closedAt, feesPaid: pos.feesPaid });
@@ -542,7 +600,7 @@ class PaperAccount extends EventEmitter {
     this.pushEquity();
     this.save();
     const win = pnl > 0;
-    const label = { target: 'Target hit', stop: 'Stopped out', 'trailing stop': 'Trailing stop hit', 'exit rule': 'Strategy exit', 'close of day': 'Closed at the bell', 'time limit': 'Time exit', 'challenge rule': 'Closed by the challenge rules', 'daily stop': 'Closed by your daily stop' }[reason] || 'Closed';
+    const label = pos.beast ? 'Beast Mode win' : { target: 'Target hit', stop: 'Stopped out', 'trailing stop': 'Trailing stop hit', 'exit rule': 'Strategy exit', 'close of day': 'Closed at the bell', 'time limit': 'Time exit', 'challenge rule': 'Closed by the challenge rules', 'daily stop': 'Closed by your daily stop', 'beast mode': 'Beast Mode win' }[reason] || 'Closed';
     this.emit('event', {
       type: 'closed', symbol: pos.symbol, sound: win ? 'win' : 'loss', win,
       message: label + ': ' + pos.symbol + ' ' + (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2) + (rec.R != null ? ' (' + (rec.R >= 0 ? '+' : '') + rec.R.toFixed(2) + 'R)' : ''),
@@ -612,6 +670,13 @@ class PaperAccount extends EventEmitter {
 
   // ----- the monitor loop: fills pending orders and enforces stops/targets -----
   tick() {
+    const run = this.tickInner();
+    // sync codes (core/sync.js): upload changes or fetch the other device's, outside the lock
+    if (this.sync) run.then(() => this.sync.maybe(), () => this.sync.maybe());
+    return run;
+  }
+
+  tickInner() {
     return this.exclusive(async () => {
       const symbols = new Set(this.state.positions.map((p) => p.symbol).concat(this.state.orders.map((o) => o.symbol)));
       for (const sym of symbols) {
@@ -849,7 +914,7 @@ class PaperAccount extends EventEmitter {
       const base = {
         symbol: o.symbol, dir: o.dir, qty: o.qty, stop: o.stop, target: o.target, source: o.source,
         strategy: o.strategy, tf: o.tf, note: o.note, grade: o.grade, closeAt: o.closeAt, managed: o.managed,
-        verdict: o.verdict, concerns: o.concerns, stop0: o.stop0,
+        verdict: o.verdict, concerns: o.concerns, stop0: o.stop0, beast: o.beast,
       };
       this.openPosition(base, fillAt, o.type);
     }
@@ -886,6 +951,7 @@ class PaperAccount extends EventEmitter {
   // setting allows: always for the trade's own strategy exit, and for shaky signs only when
   // the user chose 'all'. Managed trades close themselves, so they only get the shaky notes.
   async sellCheck(p) {
+    if (p.beast) return; // a Beast Mode trade can't lose, so there is nothing to warn about
     const mode = this.sellMode();
     const tf = (p.managed && p.managed.tf) || p.tf;
     const sid = (p.managed && p.managed.strategy) || p.strategy;
@@ -988,8 +1054,11 @@ class PaperAccount extends EventEmitter {
       orders: this.state.orders,
       history: this.state.history.slice(0, 200),
       equityCurve: this.state.equityCurve.slice(-1000).concat([{ time: nowSec(), value: eq }]),
-      stats: tradeStats(this.state.history),
-      mistakes: mistakesOf(this.state.history, this.state.ghosts),
+      // Beast Mode trades are a toy: they never count toward how you trade.
+      stats: tradeStats(this.state.history.filter((h) => !h.beast)),
+      mistakes: mistakesOf(this.state.history.filter((h) => !h.beast), this.state.ghosts),
+      beast: !!this.state.beast,
+      beastTrades: this.state.history.filter((h) => h.beast).length,
     };
   }
 }
@@ -1022,6 +1091,21 @@ function sellState(p, bars, k, i) {
   let hi = p.entry; let lo = p.entry;
   for (let j = k + 1; j <= i; j++) { hi = Math.max(hi, bars[j].high); lo = Math.min(lo, bars[j].low); }
   return { dir: p.dir, entry: p.entry, risk, hi, lo, bars: i - k + 1 };
+}
+
+// Beast Mode: the exit price that makes this trade a winner after all costs. The real exit is kept
+// when it already wins by more than the forced one.
+function beastExit(pos, inst, realExit) {
+  const dir = pos.dir;
+  const stop0 = pos.stop0 != null ? pos.stop0 : pos.stop;
+  const oneR = stop0 != null && Math.abs(pos.entry - stop0) > 0 ? Math.abs(pos.entry - stop0) : pos.entry * 0.01;
+  let want = pos.target != null && (pos.target - pos.entry) * dir > 0 ? pos.target : pos.entry + dir * oneR;
+  const pnlAt = (x) => (x - pos.entry) * dir * pos.qty * inst.multiplier * quoteToUsd(inst, x) - feeUsd(inst, x, pos.qty) - (pos.feesPaid || 0);
+  // make sure the costs can't turn it into a loss
+  for (let k = 0; k < 8 && pnlAt(roundPrice(inst, want)) <= 0; k++) want += dir * oneR;
+  want = roundPrice(inst, want);
+  if ((realExit - want) * dir >= 0 && pnlAt(realExit) > 0) return { exit: realExit, forced: false };
+  return { exit: want, forced: true };
 }
 
 // Stop, target or end-of-day exit for a position (or a ghost) from bars since `since`.
@@ -1095,7 +1179,7 @@ function tradeStats(history) {
   return out;
 }
 
-module.exports = { stratDecision, sellState, PaperAccount, tradeStats, mistakesOf, usCloseUtc, DEFAULT_CASH };
+module.exports = { isBeastCode, beastExit, stratDecision, sellState, PaperAccount, tradeStats, mistakesOf, usCloseUtc, DEFAULT_CASH };
 
 }, {"fs":"web/shims/fs.js","path":"web/shims/path.js","events":"web/shims/events.js","./markets":"core/markets.js","./costs":"core/costs.js","./risk":"core/risk.js","./data":"core/data.js","./strategies":"core/strategies.js","./time":"core/time.js","./prop":"core/prop.js","./exits":"core/exits.js"}],
 "web/shims/fs.js": [function (module, exports, require) {
@@ -2967,6 +3051,7 @@ const { sessionKey } = require('./time');
 const research = require('./research');
 const PROP = require('./prop');
 const top = require('./top');
+const { isBeastCode } = require('./paper');
 
 function createApi(account) {
   const methods = {
@@ -3001,9 +3086,31 @@ function createApi(account) {
     async quotes({ symbols }) {
       return getQuotes(symbols || INSTRUMENTS.map((i) => i.symbol));
     },
-    async suggest({ symbol, tf, profile, prefer }) {
+    // Settings > Get my code / Enter a code. The same box also takes the Beast Mode code.
+    syncStatus() {
+      return account.sync ? account.sync.status() : { available: false, linked: false };
+    },
+    async syncCreate() {
+      if (!account.sync) throw new Error('Sync is not available in this version.');
+      return account.sync.create();
+    },
+    async enterCode({ code }) {
+      if (isBeastCode(code)) {
+        const r = account.setBeast(!account.state.beast);
+        return { kind: 'beast', beast: r.beast };
+      }
+      if (!account.sync) throw new Error('Sync is not available in this version.');
+      return { kind: 'sync', status: await account.sync.join(code) };
+    },
+    syncUnlink() {
+      return account.sync ? account.sync.unlink() : { available: false, linked: false };
+    },
+    async syncNow() {
+      return account.sync ? account.sync.now() : { available: false, linked: false };
+    },
+    async suggest({ symbol, tf, profile, prefer, signals }) {
       const p = profile || account.state.profile;
-      return advisor.suggest({ symbol, tf, profile: p, prefer, equity: account.equity(), usedNotionalFor: (m) => account.usedNotional(m), guardFor: (s) => account.guardBlock(s) });
+      return advisor.suggest({ symbol, tf, profile: p, prefer, signals: !!signals, equity: account.equity(), usedNotionalFor: (m) => account.usedNotional(m), guardFor: (s) => account.guardBlock(s) });
     },
     async closeWatch() {
       return advisor.closeWatch();
@@ -3086,7 +3193,7 @@ function createApi(account) {
 
 module.exports = { createApi };
 
-}, {"./markets":"core/markets.js","./data":"core/data.js","./risk":"core/risk.js","./strategies":"core/strategies.js","./advisor":"core/advisor.js","./indicators":"core/indicators.js","./time":"core/time.js","./research":"core/research.js","./prop":"core/prop.js","./top":"core/top.js"}],
+}, {"./markets":"core/markets.js","./data":"core/data.js","./risk":"core/risk.js","./strategies":"core/strategies.js","./advisor":"core/advisor.js","./indicators":"core/indicators.js","./time":"core/time.js","./research":"core/research.js","./prop":"core/prop.js","./top":"core/top.js","./paper":"core/paper.js"}],
 "core/advisor.js": [function (module, exports, require) {
 'use strict';
 // The trade advisor: backtests every applicable strategy on the chart you are
@@ -3320,6 +3427,9 @@ async function suggest(params) {
     idea: null,
     alternatives: [],
   };
+  // Chart signals: each strategy's past entries and exits (and the trade it is in now), for the
+  // BUY / SELL markers on the candles.
+  if (params.signals) out.signals = signalsOf(results, bars);
   if (!ranked.length) {
     out.message = 'No strategy has a setup on ' + symbol + ' ' + tf + ' right now. Try another timeframe or market, or place your own trade.';
     return out;
@@ -3406,6 +3516,20 @@ async function suggest(params) {
     out.idea.lesson = null; out.idea.lessonError = String((e && e.message) || e);
   }
   return out;
+}
+
+const r2 = (x) => Math.round(x * 100) / 100;
+function signalsOf(results, bars) {
+  return results.map(({ strat, bt, research }) => {
+    const o = bt.openTrade;
+    return {
+      id: strat.id, name: strat.name, style: strat.style,
+      verdict: research ? research.verdict : null,
+      stats: { trades: bt.stats.trades, winRate: bt.stats.winRate, expectancyR: bt.stats.expectancyR },
+      trades: bt.trades.slice(-80).map((t) => ({ dir: t.dir, entryTime: t.entryTime, exitTime: t.exitTime, entry: t.entry, exit: t.exit, R: r2(t.R), reason: t.reason })),
+      open: o ? { dir: o.dir, entryTime: bars[o.entryIdx].time, entry: o.entryFill, stop: o.stop, target: o.target } : null,
+    };
+  });
 }
 
 async function strategyLab(params) {
@@ -4318,7 +4442,208 @@ async function scanBatch(items, suggest, concurrency) {
 
 module.exports = { scanList, rowOf, rank, compareRows, evidenceTier, scanBatch, keyOf, EVIDENCE, LEVEL };
 
-}, {"./markets":"core/markets.js"}]
+}, {"./markets":"core/markets.js"}],
+"core/sync.js": [function (module, exports, require) {
+'use strict';
+// Sync codes: carry one paper account between devices (the Windows app and the iPhone app).
+//
+// "Get my code" uploads this device's paper account to PaperDesk's sync service and returns a code
+// such as K7QD-M2XP. Typing that code under "Enter a code" on another device loads the account
+// there. From then on both devices share it: a change (a new trade, a close, a moved stop) uploads
+// a few seconds later, and each device checks for the other's changes every 30 seconds. If both
+// changed at once, the most recent change wins.
+//
+// Only the paper account is sent (cash, positions, orders, trade history and its settings). No
+// names, emails or passwords. The service is the iPhone site's Worker (web/functions/sync.js).
+const { requestJSON } = require('./http');
+
+const DEFAULT_BASE = 'https://paperdesk-iphone.blakegilbert7.workers.dev/sync';
+const PUSH_DELAY_MS = 2500;
+const PULL_EVERY_MS = 30000;
+const ALPHA = '23456789ABCDEFGHJKMNPQRSTUVWXYZ';
+
+function normCode(s) {
+  const x = String(s || '').toUpperCase().replace(/[^0-9A-Z]/g, '');
+  if (x.length !== 8) return null;
+  for (const ch of x) if (!ALPHA.includes(ch)) return null;
+  return x.slice(0, 4) + '-' + x.slice(4);
+}
+
+function hash(str) {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 0x01000193); }
+  return (h >>> 0).toString(16);
+}
+
+function validState(s) {
+  return !!(s && typeof s === 'object' && s.version === 1 && Array.isArray(s.positions) && Array.isArray(s.orders) && Array.isArray(s.history) && typeof s.balance === 'number');
+}
+
+// A JSON file next to the account (desktop and dev server).
+function fileStore(file) {
+  const fs = require('fs');
+  const path = require('path');
+  return {
+    read() { try { return JSON.parse(fs.readFileSync(file, 'utf8')); } catch (e) { return null; } },
+    write(v) {
+      try {
+        if (v == null) { fs.rmSync(file, { force: true }); return; }
+        fs.mkdirSync(path.dirname(file), { recursive: true });
+        fs.writeFileSync(file, JSON.stringify(v));
+      } catch (e) { /* not fatal: sync just won't be remembered */ }
+    },
+  };
+}
+
+class Sync {
+  constructor(account, opts) {
+    const o = opts || {};
+    this.account = account;
+    this.base = String(o.base || DEFAULT_BASE).replace(/\/+$/, '');
+    this.store = o.store || { read: () => null, write: () => {} };
+    let cfg = null;
+    try { cfg = this.store.read(); } catch (e) { cfg = null; }
+    this.cfg = cfg && normCode(cfg.code) && Number(cfg.rev) > 0 ? cfg : null;
+    this.busy = false;
+    this.lastPull = 0;
+    this.error = null;
+    this.seenSig = this.sig();
+    this.changedAt = Date.now();
+  }
+
+  // What counts as a change worth sending: trades, orders, stops, cash and settings. Price ticks
+  // and the equity curve alone don't trigger an upload (they ride along with the next one).
+  sig() {
+    const s = this.account.state;
+    const pos = s.positions.map((p) => [p.id, p.qty, p.stop, p.target, p.managed ? 1 : 0].join(':')).join(',');
+    const ord = s.orders.map((o) => [o.id, o.price, o.qty, o.stop, o.target].join(':')).join(',');
+    const last = s.history.length ? s.history[s.history.length - 1] : null;
+    const ch = s.challenge ? [s.challenge.presetId, s.challenge.status, s.challenge.phase, s.challenge.attempt].join(':') : '';
+    return hash([s.createdAt, s.startingCash, Math.round(s.balance * 100), s.profile, s.guard, s.sellAlerts, s.beast ? 1 : 0,
+      pos, ord, s.history.length, last ? last.id + ':' + last.closedAt : '', ch].join('|'));
+  }
+
+  status() {
+    return {
+      available: true,
+      linked: !!this.cfg,
+      code: this.cfg ? this.cfg.code : null,
+      lastSync: this.cfg ? this.cfg.lastOk || null : null,
+      pending: !!(this.cfg && this.sig() !== this.cfg.sig),
+      error: this.error,
+    };
+  }
+
+  saveCfg() { try { this.store.write(this.cfg); } catch (e) { /* ignore */ } }
+  ok() { this.error = null; if (this.cfg) { this.cfg.lastOk = Date.now(); this.saveCfg(); } }
+  exportState() { return JSON.parse(JSON.stringify(this.account.state)); }
+
+  async importState(state, message) {
+    if (!validState(state)) throw new Error('That code holds something that is not a PaperDesk account.');
+    await this.account.exclusive(async () => {
+      this.account.state = state;
+      this.account.saveNow();
+    });
+    const sig = this.sig();
+    this.seenSig = sig;
+    this.account.emit('event', { type: 'sync', sound: 'notify', message });
+    return sig;
+  }
+
+  async guard(fn) {
+    if (this.busy) throw new Error('Sync is busy for a moment. Try again.');
+    this.busy = true;
+    try { return await fn(); } finally { this.busy = false; }
+  }
+
+  // "Get my code": upload this account and link this device to the new code.
+  create() {
+    return this.guard(async () => {
+      if (this.cfg) return this.status();
+      const sig = this.sig();
+      const r = await requestJSON('POST', this.base + '/new', { state: this.exportState() });
+      if (r.status !== 200 || !r.json || !normCode(r.json.code)) throw new Error((r.json && r.json.error) || 'Could not make a code right now (HTTP ' + r.status + ').');
+      this.cfg = { code: r.json.code, rev: r.json.rev, sig };
+      this.ok();
+      return this.status();
+    });
+  }
+
+  // "Enter a code": load the account behind a code onto this device and link it.
+  join(code) {
+    const c = normCode(code);
+    if (!c) return Promise.reject(new Error('Codes look like K7QD-M2XP: 8 letters and numbers.'));
+    return this.guard(async () => {
+      const r = await requestJSON('GET', this.base + '/' + c);
+      if (r.status === 404) throw new Error('No paper account uses the code ' + c + '. Check it and try again.');
+      if (r.status !== 200 || !r.json || !r.json.state) throw new Error((r.json && r.json.error) || 'Could not load that code right now (HTTP ' + r.status + ').');
+      const sig = await this.importState(r.json.state, 'Loaded your paper account from code ' + c + '. Trades on either device now stay in step.');
+      this.cfg = { code: c, rev: r.json.rev, sig };
+      this.ok();
+      return this.status();
+    });
+  }
+
+  unlink() {
+    this.cfg = null;
+    this.error = null;
+    try { this.store.write(null); } catch (e) { /* ignore */ }
+    return this.status();
+  }
+
+  // Called after every engine tick (and on demand). Uploads local changes once they settle,
+  // otherwise checks for the other device's changes every 30 s.
+  maybe(force) {
+    if (!this.cfg || this.busy) return Promise.resolve();
+    const sig = this.sig();
+    if (sig !== this.seenSig) { this.seenSig = sig; this.changedAt = Date.now(); }
+    const dirty = sig !== this.cfg.sig;
+    const now = Date.now();
+    let job = null;
+    if (dirty && (force || now - this.changedAt >= PUSH_DELAY_MS)) job = () => this.push(sig);
+    else if (!dirty && (force || now - this.lastPull >= PULL_EVERY_MS)) job = () => this.pull();
+    if (!job) return Promise.resolve();
+    this.busy = true;
+    return job().then(() => { this.error = null; }, (e) => { this.error = String((e && e.message) || e); })
+      .finally(() => { this.busy = false; });
+  }
+  now() { this.lastPull = 0; return this.maybe(true).then(() => this.status()); }
+
+  async push(sig) {
+    const url = this.base + '/' + this.cfg.code;
+    let r = await requestJSON('PUT', url, { baseRev: this.cfg.rev, state: this.exportState() });
+    if (r.status === 409 && r.json && r.json.state) {
+      // Both devices changed since they last synced: keep the most recent change.
+      if ((r.json.updatedAt || 0) > this.changedAt) { await this.adopt(r.json, 'Your other device changed this account more recently, so its version is loaded here.'); return; }
+      r = await requestJSON('PUT', url, { baseRev: r.json.rev, state: this.exportState() });
+    }
+    if (r.status === 200 && r.json && r.json.rev) { this.cfg.rev = r.json.rev; this.cfg.sig = sig; this.lastPull = Date.now(); this.ok(); return; }
+    if (r.status === 404) throw new Error('This sync code no longer exists. Get a new code in Settings.');
+    throw new Error((r.json && r.json.error) || 'Sync upload failed (HTTP ' + r.status + ').');
+  }
+
+  async pull() {
+    this.lastPull = Date.now();
+    const r = await requestJSON('GET', this.base + '/' + this.cfg.code + '?since=' + this.cfg.rev);
+    if (r.status === 200 && r.json && r.json.same) { this.ok(); return; }
+    if (r.status === 200 && r.json && r.json.state) { await this.adopt(r.json, 'Synced: loaded the latest trades from your other device.'); return; }
+    if (r.status === 404) throw new Error('This sync code no longer exists. Get a new code in Settings.');
+    throw new Error((r.json && r.json.error) || 'Sync check failed (HTTP ' + r.status + ').');
+  }
+
+  async adopt(j, message) {
+    // A trade placed here while the download was on its way wins; it uploads on the next tick.
+    if (this.sig() !== this.cfg.sig && j.updatedAt <= this.changedAt) return;
+    const sig = await this.importState(j.state, message);
+    this.cfg.rev = j.rev;
+    this.cfg.sig = sig;
+    this.ok();
+  }
+}
+
+module.exports = { Sync, fileStore, normCode, DEFAULT_BASE };
+
+}, {"./http":"core/http.js","fs":"web/shims/fs.js","path":"web/shims/path.js"}]
 };
 var cache = {};
 function load(id) {

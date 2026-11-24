@@ -18,13 +18,24 @@ Screen deletes it. The Safari tab and the Home Screen app keep separate accounts
 PaperDesk watches the market only while it is open. When you come back, it checks the price bars it
 missed and fills any stop or target that was hit while it was closed.
 
+## Carry your trades between the PC and the phone
+
+On the Windows app (or the phone), open **Settings > Get my code**. On the other device, open
+**More > Sync code** (or Settings) and type the code under **Enter a code**. Your cash, open trades,
+orders, history and settings load there, and from then on both stay in step. A code also keeps a backup
+of the account if the Home Screen app is ever removed. Keep the code private: anyone with it can see and
+change that paper account.
+
 ## How it is hosted
 
 Cloudflare serves this repository as a Worker with static assets (`wrangler.jsonc`):
 
 - `public/` is the app.
-- `worker/index.js` answers `/relay` and hands every other request to the app files.
+- `worker/index.js` answers `/relay` and `/sync`, and hands every other request to the app files.
 - `functions/relay.js` holds the relay itself (it also works as a Cloudflare Pages Function).
+- `functions/sync.js` stores sync codes: one small Durable Object (`SyncBox`, SQLite storage, on the free
+  plan) per code, holding that code's paper account as one JSON document. No names, emails or passwords.
+  A code that is not used for 400 days is deleted.
 
 Yahoo Finance does not let web pages read its public chart data directly, so the app asks the relay. It
 forwards only Yahoo's public chart and spark endpoints, keeps no logs or accounts, and caches answers for a

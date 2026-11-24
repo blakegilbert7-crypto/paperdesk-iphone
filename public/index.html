@@ -27,9 +27,9 @@
   <header class="titlebar">
     <div class="brand">
       <div class="logo" aria-hidden="true">
-        <svg viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#3fa2ff"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="M10 9v14M16 6v20M22 11v10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><rect x="8" y="12" width="4" height="7" rx="1.2" fill="#fff"/><rect x="14" y="10" width="4" height="9" rx="1.2" fill="#fff" opacity=".85"/><rect x="20" y="13" width="4" height="5" rx="1.2" fill="#fff"/></svg>
+        <svg viewBox="0 0 32 32"><defs><linearGradient id="pdlg" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2435"/><stop offset="1" stop-color="#0a0e16"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#pdlg)"/><rect x=".5" y=".5" width="31" height="31" rx="8.5" fill="none" stroke="#fff" stroke-opacity=".09"/><path d="M9 12.5V25.5" stroke="#22c55e" stroke-width="1.7" stroke-linecap="round"/><rect x="6.7" y="16" width="4.6" height="6.5" rx="1.2" fill="#22c55e"/><path d="M16 9.5V22.5" stroke="#f04444" stroke-width="1.7" stroke-linecap="round"/><rect x="13.7" y="12" width="4.6" height="7" rx="1.2" fill="#f04444"/><path d="M23 6V20.5" stroke="#22c55e" stroke-width="1.7" stroke-linecap="round"/><rect x="20.7" y="8" width="4.6" height="9.5" rx="1.2" fill="#22c55e"/></svg>
       </div>
-      <div class="brand-text"><b>PaperDesk</b><span class="pill pill-paper" title="Everything in PaperDesk is simulated. No real money, no brokerage connection.">PAPER MONEY</span></div>
+      <div class="brand-text"><b>PaperDesk</b><span class="pill pill-paper" title="Everything in PaperDesk is simulated. No real money, no brokerage connection.">PAPER MONEY</span><span class="pill pill-beast" id="beastBadge" hidden title="Beast Mode is on: every trade you place closes as a winner. Those trades are kept out of your stats. Turn it off by entering the code again in Settings."><span class="ico" data-icon="flame"></span>BEAST MODE</span></div>
     </div>
 
     <button class="search-btn no-drag" id="searchBtn" data-sound="click">
@@ -39,6 +39,7 @@
     <div class="tb-right no-drag">
       <button class="tb-btn tb-top" id="topBtn" data-sound="click" title="The best setups across every market, ranked (T)"><span class="ico" data-icon="podium"></span><span class="tb-txt">Top trades</span></button>
       <button class="tb-btn tb-learn" id="learnBtn" data-sound="click" title="How the strategies work and why, with replays of real trades (L)"><span class="ico" data-icon="cap"></span><span class="tb-txt">Learn</span></button>
+      <button class="tb-btn tb-quiz" id="quizBtn" data-sound="click" title="Multiple-choice trading questions with answers explained"><span class="ico" data-icon="quiz"></span><span class="tb-txt">Quiz me</span></button>
       <button class="tb-btn" id="researchBtn" data-sound="click" title="36 years of backtests: what held up and what failed"><span class="ico" data-icon="book"></span><span class="tb-txt">Research</span></button>
       <button class="tb-btn" id="propBtn" data-sound="click" title="Practise a prop firm challenge under its real rules"><span class="ico" data-icon="trophy"></span><span class="tb-txt">Prop challenge</span></button>
       <div class="acct-chip" id="acctChip" title="Account equity (paper)">
@@ -81,6 +82,7 @@
           <div class="chart-tools">
             <div class="seg tf-seg" id="tfSeg"><span class="seg-ind"></span></div>
             <div class="toggles" id="indToggles">
+              <button class="chip on sig-chip" data-ind="signals" data-sound="toggle" title="Show where the strategy bought and sold on these candles"><i class="sw sig-sw"></i>Signals</button>
               <button class="chip on" data-ind="ema20" data-sound="toggle"><i class="sw" style="--c:var(--s1)"></i>EMA 20</button>
               <button class="chip on" data-ind="ema50" data-sound="toggle"><i class="sw" style="--c:var(--s2)"></i>EMA 50</button>
               <button class="chip" data-ind="vwap" data-sound="toggle"><i class="sw" style="--c:var(--s5)"></i>VWAP</button>
@@ -92,6 +94,7 @@
           <div id="chart"></div>
           <canvas id="chartOverlay"></canvas>
           <div class="ohlc-legend num" id="ohlcLegend"></div>
+          <div class="sig-bar" id="sigBar" hidden></div>
           <div class="chart-loading" id="chartLoading"><div class="spinner"></div><span>Loading live data…</span></div>
           <div class="chart-error" id="chartError" hidden></div>
         </div>
@@ -197,6 +200,8 @@
   <div class="modal-back" id="settingsModal" hidden>
     <div class="modal settings-modal" role="dialog" aria-label="Settings">
       <div class="modal-head"><h2>Settings</h2><button class="icon-btn sm" data-close data-sound="click"><span class="ico" data-icon="x"></span></button></div>
+      <div class="set-sec" id="syncSec">Your trades on your other devices</div>
+      <div class="sync-box" id="syncBox"></div>
       <div class="set-sec">Theme</div>
       <div class="th-grid" id="themeGrid"></div>
       <div class="set-row"><div><b>Layout</b><p id="layoutTip">Where the panels sit. Each theme picks one; you can change it.</p></div><div class="lay-seg" id="layoutSeg"></div></div>
@@ -210,6 +215,13 @@
       </div>
       <div class="profile-table" id="profileTable"></div>
       <p class="fine">PaperDesk is an educational simulator. It never connects to a broker or moves real money. Backtests use recent free data with simple cost assumptions; past results do not predict future results, and most short-term traders lose money.</p>
+    </div>
+  </div>
+
+  <div class="modal-back tall" id="quizModal" hidden>
+    <div class="modal quiz-modal" role="dialog" aria-label="Quiz me">
+      <div class="modal-head"><div><h2>Quiz me</h2><div class="sub">Trading basics, risk, candles, costs and what the research found</div></div><button class="icon-btn sm" data-close data-sound="click"><span class="ico" data-icon="x"></span></button></div>
+      <div class="quiz-body" id="quizBody"></div>
     </div>
   </div>
 
@@ -230,7 +242,7 @@
   <div class="modal-back" id="welcomeModal" hidden>
     <div class="modal welcome" role="dialog" aria-label="Welcome">
       <div class="welcome-hero">
-        <div class="logo big" aria-hidden="true"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="M10 9v14M16 6v20M22 11v10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><rect x="8" y="12" width="4" height="7" rx="1.2" fill="#fff"/><rect x="14" y="10" width="4" height="9" rx="1.2" fill="#fff" opacity=".85"/><rect x="20" y="13" width="4" height="5" rx="1.2" fill="#fff"/></svg></div>
+        <div class="logo big" aria-hidden="true"><svg viewBox="0 0 32 32"><defs><linearGradient id="pdlg2" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#1b2435"/><stop offset="1" stop-color="#0a0e16"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#pdlg2)"/><rect x=".5" y=".5" width="31" height="31" rx="8.5" fill="none" stroke="#fff" stroke-opacity=".09"/><path d="M9 12.5V25.5" stroke="#22c55e" stroke-width="1.7" stroke-linecap="round"/><rect x="6.7" y="16" width="4.6" height="6.5" rx="1.2" fill="#22c55e"/><path d="M16 9.5V22.5" stroke="#f04444" stroke-width="1.7" stroke-linecap="round"/><rect x="13.7" y="12" width="4.6" height="7" rx="1.2" fill="#f04444"/><path d="M23 6V20.5" stroke="#22c55e" stroke-width="1.7" stroke-linecap="round"/><rect x="20.7" y="8" width="4.6" height="9.5" rx="1.2" fill="#22c55e"/></svg></div>
         <h2>Welcome to PaperDesk</h2>
         <p>You have <b class="num">$100,000</b> of paper money to trade live markets: stocks, crypto, forex and futures. Every trade is simulated. Nothing touches a real account.</p>
       </div>
@@ -253,6 +265,8 @@
   <script src="js/learn-data.js"></script>
   <script src="js/learn.js"></script>
   <script src="js/top.js"></script>
+  <script src="js/quiz-data.js"></script>
+  <script src="js/quiz.js"></script>
   <script src="js/app.js"></script>
   <script src="js/phone.js"></script>
 </body>

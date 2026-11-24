@@ -203,12 +203,23 @@
     }
   }
 
-  function setMarkers(trades) {
+  // trades: the user's own trades. signals: past strategy signals (backtest trades) to mark on the
+  // candles: green arrows under the bar for buys (BUY, COVER), red arrows over it for sells (SELL, SHORT).
+  function setMarkers(trades, signals) {
     S.lastMarkers = trades;
+    if (signals !== undefined) S.lastSignals = signals;
     const UP = P().up; const DOWN = P().down;
     if (!S.times.length) { S.candles.setMarkers([]); return; }
     const first = S.times[0];
     const ms = [];
+    for (const g of S.lastSignals || []) {
+      const long = g.dir > 0;
+      if (g.entryTime >= first) ms.push({ time: toLocal(snap(g.entryTime)), position: long ? 'belowBar' : 'aboveBar', color: long ? UP : DOWN, shape: long ? 'arrowUp' : 'arrowDown', text: (long ? 'BUY' : 'SHORT') + (g.open ? ' · open' : ''), size: 1 });
+      if (g.exitTime && g.exitTime >= first) {
+        const r = (g.R >= 0 ? '+' : '') + g.R.toFixed(1) + 'R';
+        ms.push({ time: toLocal(snap(g.exitTime)), position: long ? 'aboveBar' : 'belowBar', color: long ? DOWN : UP, shape: long ? 'arrowDown' : 'arrowUp', text: (long ? 'SELL ' : 'COVER ') + r, size: 1 });
+      }
+    }
     for (const t of trades) {
       if (t.openedAt >= first) {
         ms.push({ time: toLocal(snap(t.openedAt)), position: t.dir > 0 ? 'belowBar' : 'aboveBar', color: t.dir > 0 ? UP : DOWN, shape: t.dir > 0 ? 'arrowUp' : 'arrowDown', text: (t.dir > 0 ? 'Buy ' : 'Sell ') + t.qty });

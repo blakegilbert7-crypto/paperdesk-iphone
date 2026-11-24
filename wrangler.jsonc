@@ -1,7 +1,9 @@
 {
-  // Cloudflare Workers config for PaperDesk for iPhone. The name must match the Worker in Cloudflare.
   "name": "paperdesk-iphone",
   "main": "worker/index.js",
   "compatibility_date": "2025-06-01",
-  "assets": { "directory": "./public", "binding": "ASSETS" }
+  "assets": { "directory": "./public", "binding": "ASSETS" },
+  // Sync codes: one small Durable Object per code (SQLite storage, available on the free plan).
+  "durable_objects": { "bindings": [{ "name": "SYNC", "class_name": "SyncBox" }] },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["SyncBox"] }]
 }

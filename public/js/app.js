@@ -22,7 +22,7 @@
     catalog: null, inst: {}, market: pref('market', 'stocks'), symbol: pref('symbol', 'SPY'), tf: pref('tf', '5m'),
     profile: 'medium', account: null, quotes: {}, idea: null, ideaFor: null, preview: pref('preview', true),
     side: 'buy', type: 'market', sizeBy: 'risk', dock: 'positions', status: null, lastPrice: null,
-    loadToken: 0, ideaBusy: false, lab: null, labOff: new Set(), notify: pref('notify', true), lastIdeaAt: 0,
+    loadToken: 0, ideaBusy: false, sigOn: true, sigStrat: pref('sigStrat', 'auto'), lab: null, labOff: new Set(), notify: pref('notify', true), lastIdeaAt: 0,
   };
 
   // ---------- formatting ----------
@@ -77,7 +77,9 @@
     bindModals();
     bindKeys();
     PriceChart.init($('chart'), $('chartOverlay'), $('ohlcLegend'));
-    const indPref = pref('ind', { ema20: true, ema50: true, vwap: false, volume: true });
+    const indPref = pref('ind', { ema20: true, ema50: true, vwap: false, volume: true, signals: true });
+    if (indPref.signals === undefined) indPref.signals = true;
+    st.sigOn = !!indPref.signals;
     PriceChart.setIndicators(indPref);
     document.querySelectorAll('#indToggles .chip').forEach((c) => {
       c.classList.toggle('on', !!indPref[c.dataset.ind]);
@@ -85,6 +87,11 @@
         c.classList.toggle('on');
         const s = {}; document.querySelectorAll('#indToggles .chip').forEach((x) => { s[x.dataset.ind] = x.classList.contains('on'); });
         PriceChart.setIndicators(s); setPref('ind', s);
+        if (c.dataset.ind === 'signals') {
+          st.sigOn = s.signals;
+          if (st.sigOn && st.idea && !st.idea.signals) refreshIdea(true);
+          drawTrades();
+        }
       });
     });
     updateSoundBtn();
@@ -323,7 +330,7 @@
     const sym = st.symbol; const tf = st.tf; const profile = st.profile;
     try {
       const prefer = st.prefer && st.prefer.symbol === sym && st.prefer.tf === tf ? st.prefer : null;
-      const res = await Api.call('suggest', { symbol: sym, tf, profile, prefer });
+      const res = await Api.call('suggest', { symbol: sym, tf, profile, prefer, signals: st.sigOn });
       if (sym !== st.symbol || tf !== st.tf) return;
       const prevKey = st.idea && st.idea.idea ? st.idea.idea.headline + st.idea.idea.entry : null;
       const firstForChart = st.ideaFor !== sym + tf;
@@ -388,8 +395,7 @@
       teach + actions +
       '<div class="exec-sub">' + (isSkip ? 'Skipping is the app\'s pick here · placing it anyway asks you to confirm' : 'Paper trade against the live price · ' + (st.status && st.status.state === 'closed' && i.entryType === 'market' ? 'market is closed, so this can\'t fill until it opens' : 'stops and targets are watched for you') + ' · E') + '</div>' +
       whyPanel(i, v, hasLesson) +
-      '<div class="lab-note" style="margin:12px 0 0">' + Icons.ico('target') + ' ' + esc(i.exitPlan) + '</div>' +
-      '<details class="more"><summary>Why this strategy, evidence and rules</summary><ul class="reasons">' + extra + '</ul>' +
+      '<details class="more"><summary>Exit plan, evidence and rules</summary><div class="lab-note" style="margin:0 0 8px">' + Icons.ico('target') + ' ' + esc(i.exitPlan) + '</div><ul class="reasons">' + extra + '</ul>' +
       (res.alternatives && res.alternatives.length ? '<div class="alt-list">' + res.alternatives.map((a) => '<span class="alt">' + esc(a.strategy) + ' · ' + (a.side === 'buy' ? 'buy' : 'sell') + ' · ' + a.grade + '</span>').join('') + '</div>' : '') +
       '</details>';
     Icons.hydrate(body);
@@ -402,6 +408,8 @@
     if (ib) ib.addEventListener('click', () => { Sound.play('select'); showTopTrade({ symbol: ib.dataset.sym, tf: res.tf || st.tf, strategy: { id: i.strategy.id }, side: i.side, pending: !!i.pending }); });
     if ($('teachBtn')) $('teachBtn').addEventListener('click', () => startLesson());
     if ($('skipBtn')) $('skipBtn').addEventListener('click', () => skipIdea(res));
+    const wp = body.querySelector('.why-panel');
+    if (wp) wp.addEventListener('toggle', () => { setPref('whyOpen', wp.open); Sound.play('toggle'); });
     body.querySelectorAll('.wc.go').forEach((el) => {
       const go = () => startLesson(Number(el.dataset.step));
       el.addEventListener('click', go);
@@ -440,10 +448,13 @@
     };
     const rules = ((i.lesson && i.lesson.checks) || []).map((c) => row(c.ok === true ? 'ok' : c.ok === false ? 'no' : 'wait', c.label, c.value, c.step)).join('');
     const ev = v.bad.map((x) => row('no', x.text, '', stepOfK[x.k])).join('') + v.warn.map((x) => row('warn', x.text, '', stepOfK[x.k])).join('') + v.good.map((x) => row('ok', x.text, '', stepOfK[x.k])).join('');
-    return '<div class="why-panel"><div class="why-h"><b>Why ' + (v.level === 'skip' ? 'it is a skip' : 'this trade') + '</b>' + (hasLesson ? '<span>click a line to see it on the chart</span>' : '') + '</div>' +
+    const tally = (v.bad.length ? '<span class="t-bad">' + Icons.svg('x') + v.bad.length + '</span>' : '') + (v.warn.length ? '<span class="t-warn">' + Icons.svg('alert') + v.warn.length + '</span>' : '') + (v.good.length ? '<span class="t-good">' + Icons.svg('check') + v.good.length + '</span>' : '');
+    // Folded by default so the levels and the main button stay on screen; it remembers if you open it.
+    return '<details class="why-panel"' + (pref('whyOpen', false) ? ' open' : '') + '><summary class="why-h"><b>Why ' + (v.level === 'skip' ? 'it is a skip' : 'this trade') + '</b><span class="why-tally num">' + tally + '</span><span class="why-chev">' + Icons.svg('chev') + '</span></summary>' +
+      (hasLesson ? '<div class="why-hint">Tap a line to see it on the chart</div>' : '') +
       '<p class="why-lead">' + g(i.reasons[0] || '') + '</p>' +
       (rules ? '<div class="why-sub">The rule</div><ul class="wcl">' + rules + '</ul>' : '') +
-      '<div class="why-sub">The evidence</div><ul class="wcl">' + ev + '</ul></div>';
+      '<div class="why-sub">The evidence</div><ul class="wcl">' + ev + '</ul></details>';
   }
 
   function skipCount(add) {
@@ -531,8 +542,59 @@
     const preview = st.preview && !st.lessonOn && st.idea && st.idea.idea && st.idea.symbol === st.symbol ? st.idea.idea : null;
     PriceChart.setTrades(pos, ord, preview);
     const hist = a ? a.history.filter((h) => h.symbol === st.symbol) : [];
-    PriceChart.setMarkers(hist.concat(pos));
+    PriceChart.setMarkers(hist.concat(pos), st.lessonOn ? [] : signalTrades());
+    renderSigBar();
     $('ideaPreviewBtn').classList.toggle('on', !!st.preview);
+  }
+
+  // ---------- chart signals: BUY / SELL markers from a strategy's past trades ----------
+  const VERDICT_RANK = { holds: 3, mixed: 2, fails: 0 };
+  function sigList() {
+    const r = st.idea;
+    return st.sigOn && r && r.symbol === st.symbol && r.tf === st.tf && r.signals && r.signals.length ? r.signals : null;
+  }
+  // The strategy behind today's idea, else the one our research and its record rate best here.
+  function sigAuto(list) {
+    const ideaId = st.idea && st.idea.idea && st.idea.idea.strategy ? st.idea.idea.strategy.id : null;
+    const fromIdea = ideaId && list.find((x) => x.id === ideaId);
+    if (fromIdea) return fromIdea;
+    const score = (x) => (x.verdict ? VERDICT_RANK[x.verdict] : 1) * 10 + (x.stats.trades >= 5 ? Math.max(-5, Math.min(5, x.stats.expectancyR * 10)) : -6);
+    return list.slice().sort((a, b) => score(b) - score(a))[0];
+  }
+  function sigPick(list) {
+    return (st.sigStrat !== 'auto' && list.find((x) => x.id === st.sigStrat)) || sigAuto(list);
+  }
+  function signalTrades() {
+    const list = sigList();
+    if (!list) return [];
+    const x = sigPick(list);
+    return x.trades.concat(x.open ? [Object.assign({ open: true }, x.open)] : []);
+  }
+  let sigBarKey = '';
+  function renderSigBar() {
+    const bar = $('sigBar');
+    const list = st.lessonOn ? null : sigList();
+    if (!list) { bar.hidden = true; sigBarKey = ''; return; }
+    const auto = sigAuto(list); const x = sigPick(list);
+    const key = st.symbol + st.tf + st.idea.generatedAt + st.sigStrat + x.id;
+    if (key === sigBarKey && !bar.hidden) return;
+    sigBarKey = key;
+    const t = x.stats;
+    const stat = t.trades ? t.trades + ' past trades · ' + t.winRate.toFixed(0) + '% won · ' + (t.expectancyR >= 0 ? '+' : '') + t.expectancyR.toFixed(2) + 'R avg' : 'No past trades on this chart';
+    const now = x.open ? ' · in a ' + (x.open.dir > 0 ? 'buy' : 'short') + ' now' : '';
+    const vt = { holds: 'Research: held up', mixed: 'Research: mixed', fails: 'Research: failed' };
+    const opts = '<option value="auto"' + (st.sigStrat === 'auto' ? ' selected' : '') + '>Best match: ' + esc(auto.name) + '</option>' +
+      list.map((y) => '<option value="' + esc(y.id) + '"' + (st.sigStrat === y.id ? ' selected' : '') + '>' + esc(y.name) + '</option>').join('');
+    bar.innerHTML = '<span class="sig-ar" aria-hidden="true"><b class="b">▲</b><b class="s">▼</b></span>' +
+      '<label class="sig-pick" title="Which strategy\'s buy and sell points to show"><span>' + esc(x.name) + '</span><i>▼</i><select aria-label="Strategy for chart signals">' + opts + '</select></label>' +
+      '<span class="sig-st num">' + stat + now + '</span>' + (x.verdict ? '<span class="sig-v ' + x.verdict + '">' + vt[x.verdict] + '</span>' : '');
+    bar.title = 'BUY and SELL arrows mark where ' + x.name + ' bought and sold on these candles, after fees and slippage. SHORT and COVER are its sell-first trades. They show how it behaved in the past, not what happens next.';
+    bar.hidden = false;
+    bar.querySelector('select').addEventListener('change', (e) => {
+      st.sigStrat = e.target.value; setPref('sigStrat', st.sigStrat);
+      if (window.Sound) try { Sound.play('toggle'); } catch (err) { /* ignore */ }
+      drawTrades();
+    });
   }
 
   // ---------- account ----------
@@ -541,6 +603,7 @@
     let a;
     try { a = await Api.call('account'); } catch (e) { return; }
     st.account = a;
+    const bb = $('beastBadge'); if (bb && bb.hidden === !!a.beast) bb.hidden = !a.beast;
     renderChallenge(a.challenge);
     Fx.tweenNumber($('equityVal'), a.equity, (v) => money(v));
     const d = $('dayPnlVal');
@@ -549,7 +612,7 @@
     const pc = $('posCount'); const oc = $('ordCount');
     if (pc.textContent !== String(a.positions.length)) { pc.textContent = a.positions.length; pc.classList.toggle('hot', a.positions.length > 0); }
     if (oc.textContent !== String(a.orders.length)) { oc.textContent = a.orders.length; oc.classList.toggle('hot', a.orders.length > 0); }
-    const sig = a.positions.map((p) => p.id + ':' + p.stop + ':' + p.target).join(',') + '|' + a.orders.map((o) => o.id).join(',') + '|' + a.history.length + '|' + (a.mistakes ? a.mistakes.early.trades + ':' + a.mistakes.early.tracking : '');
+    const sig = a.positions.map((p) => p.id + ':' + p.stop + ':' + p.target).join(',') + '|' + a.orders.map((o) => o.id).join(',') + '|' + a.history.length + ':' + (a.history[0] ? a.history[0].id : '') + '|' + (a.mistakes ? a.mistakes.early.trades + ':' + a.mistakes.early.tracking : '');
     const structural = sig !== accountSig;
     accountSig = sig;
     renderPositions(structural);
@@ -583,7 +646,7 @@
     }
     if (structural || !pane.querySelector('table')) {
       pane.innerHTML = '<table class="grid num"><thead><tr><th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Last</th><th class="r">Stop</th><th class="r">Target</th><th>Stop → Target</th><th class="r">P&amp;L</th><th>Source</th><th></th></tr></thead><tbody>' +
-        a.positions.map((p) => '<tr data-id="' + p.id + '"><td><b>' + esc(p.symbol) + '</b><span class="sell-sig"></span></td><td><span class="side-tag ' + p.side + '">' + p.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(p.symbol, p.qty) + '</td><td class="r">' + px(p.symbol, p.entry) + '</td><td class="r last"></td><td class="r stop">' + px(p.symbol, p.stop) + '</td><td class="r tgt">' + (p.target != null ? px(p.symbol, p.target) : '-') + '</td><td class="prog"></td><td class="r pnl"></td><td>' + (p.source === 'suggested' ? '<span class="src-tag" title="' + esc(p.strategy) + '">' + esc(stratName(p.strategy)) + (p.grade ? ' · ' + p.grade : '') + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r"><button class="row-btn edit" data-act="edit">Edit</button> <button class="row-btn" data-act="close" data-sound="none">Close</button></td></tr>').join('') + '</tbody></table>';
+        a.positions.map((p) => '<tr data-id="' + p.id + '"><td><b>' + esc(p.symbol) + '</b>' + (p.beast ? '<span class="beast-tag" title="Placed in Beast Mode: it will close as a winner">BEAST</span>' : '') + '<span class="sell-sig"></span></td><td><span class="side-tag ' + p.side + '">' + p.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(p.symbol, p.qty) + '</td><td class="r">' + px(p.symbol, p.entry) + '</td><td class="r last"></td><td class="r stop">' + px(p.symbol, p.stop) + '</td><td class="r tgt">' + (p.target != null ? px(p.symbol, p.target) : '-') + '</td><td class="prog"></td><td class="r pnl"></td><td>' + (p.source === 'suggested' ? '<span class="src-tag" title="' + esc(p.strategy) + '">' + esc(stratName(p.strategy)) + (p.grade ? ' · ' + p.grade : '') + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r"><button class="row-btn edit" data-act="edit">Edit</button> <button class="row-btn" data-act="close" data-sound="none">Close</button></td></tr>').join('') + '</tbody></table>';
       pane.querySelectorAll('button[data-act]').forEach((b) => b.addEventListener('click', () => {
         const id = Number(b.closest('tr').dataset.id);
         if (b.dataset.act === 'close') closePosition(id, b); else editPosition(id, b.closest('tr'));
@@ -650,7 +713,7 @@
     const a = st.account; const pane = $('historyPane');
     if (!a.history.length) { pane.innerHTML = '<div class="empty">' + Icons.ico('book') + '<b>No closed trades yet</b><span>Every closed paper trade lands here with its result in dollars and R.</span></div>'; Icons.hydrate(pane); return; }
     pane.innerHTML = '<table class="grid num"><thead><tr><th>Closed</th><th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit</th><th>Exit reason</th><th class="r">P&amp;L</th><th class="r">R</th><th>Source</th><th class="r">Held</th></tr></thead><tbody>' +
-      a.history.map((h) => '<tr><td>' + timeStr(h.closedAt) + '</td><td><b>' + esc(h.symbol) + '</b></td><td><span class="side-tag ' + h.side + '">' + h.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(h.symbol, h.qty) + '</td><td class="r">' + px(h.symbol, h.entry) + '</td><td class="r">' + px(h.symbol, h.exit) + '</td><td>' + esc(h.reason) + '</td><td class="r ' + cls(h.pnl) + '">' + smoney(h.pnl) + '</td><td class="r ' + cls(h.R) + '">' + (h.R != null ? (h.R >= 0 ? '+' : '') + h.R.toFixed(2) : '-') + '</td><td>' + (h.source === 'suggested' ? '<span class="src-tag">' + esc(stratName(h.strategy)) + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r">' + dur(h.closedAt - h.openedAt) + '</td></tr>').join('') + '</tbody></table>';
+      a.history.map((h) => '<tr><td>' + timeStr(h.closedAt) + '</td><td><b>' + esc(h.symbol) + '</b>' + (h.beast ? '<span class="beast-tag" title="Beast Mode trade: left out of your stats">BEAST</span>' : '') + '</td><td><span class="side-tag ' + h.side + '">' + h.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(h.symbol, h.qty) + '</td><td class="r">' + px(h.symbol, h.entry) + '</td><td class="r">' + px(h.symbol, h.exit) + '</td><td>' + esc(h.reason) + '</td><td class="r ' + cls(h.pnl) + '">' + smoney(h.pnl) + '</td><td class="r ' + cls(h.R) + '">' + (h.R != null ? (h.R >= 0 ? '+' : '') + h.R.toFixed(2) : '-') + '</td><td>' + (h.source === 'suggested' ? '<span class="src-tag">' + esc(stratName(h.strategy)) + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r">' + dur(h.closedAt - h.openedAt) + '</td></tr>').join('') + '</tbody></table>';
   }
 
   // ---------- performance ----------
@@ -671,7 +734,7 @@
     }
     $('perfTiles').innerHTML = tile('Equity', money(a.equity, 0), 'started with ' + money(a.startingCash, 0)) + tile('Total P&L', smoney(a.totalPnl, 0), pct(a.totalPnlPct), cls(a.totalPnl)) +
       tile('Win rate', s.all.trades ? s.all.winRate.toFixed(0) + '%' : '-', s.all.trades + ' closed trades') + tile('Profit factor', s.all.profitFactor != null && s.all.trades ? s.all.profitFactor.toFixed(2) : '-', 'gross wins ÷ gross losses') +
-      tile('Avg trade', s.all.avgR != null ? (s.all.avgR >= 0 ? '+' : '') + s.all.avgR.toFixed(2) + 'R' : '-', 'R = multiples of risk', cls(s.all.avgR)) + tile('Best / worst', smoney(s.all.best, 0) + ' / ' + smoney(s.all.worst, 0), '');
+      tile('Avg trade', s.all.avgR != null ? (s.all.avgR >= 0 ? '+' : '') + s.all.avgR.toFixed(2) + 'R' : '-', 'R = multiples of risk', cls(s.all.avgR)) + tile('Best / worst', smoney(s.all.best, 0) + ' / ' + smoney(s.all.worst, 0), a.beastTrades ? '<span class="beast-tag" style="margin:0">BEAST</span> ' + a.beastTrades + ' Beast Mode trade' + (a.beastTrades === 1 ? '' : 's') + ' left out' : '');
     $('perfVs').innerHTML = cmp('Following ideas', s.suggested) + cmp('Your own trades', s.manual);
     const mh = mistakesHtml(a.mistakes);
     if ($('perfMistakes').dataset.h !== mh) { $('perfMistakes').dataset.h = mh; $('perfMistakes').innerHTML = mh; Icons.hydrate($('perfMistakes')); }
@@ -936,10 +999,23 @@
       refreshAccount();
       return;
     }
+    if (ev.type === 'beast') {
+      Fx.toast({ kind: ev.on ? 'win' : '', title: ev.on ? 'BEAST MODE ON' : 'Beast Mode off', body: ev.message, ttl: 7000, icon: 'flame' });
+      Sound.play(ev.sound || 'toggle');
+      if (ev.on) Fx.confetti(innerWidth / 2, innerHeight / 3, 220);
+      accountSig = ''; refreshAccount();
+      return;
+    }
+    if (ev.type === 'sync') {
+      Fx.toast({ title: 'Synced', body: ev.message, ttl: 6000, icon: 'sync' });
+      Sound.play('notify');
+      accountSig = ''; chKey = ''; refreshAccount(); loadSync();
+      return;
+    }
     let kind = ''; let title = 'PaperDesk';
     if (ev.type === 'opened') { title = 'Order filled'; kind = ''; }
     if (ev.type === 'order-placed') { title = 'Order working'; }
-    if (ev.type === 'closed') { kind = ev.win ? 'win' : 'loss'; title = ev.win ? 'Winner!' : 'Trade closed'; }
+    if (ev.type === 'closed') { kind = ev.win ? 'win' : 'loss'; title = ev.trade && ev.trade.beast ? 'Beast Mode win!' : ev.win ? 'Winner!' : 'Trade closed'; }
     if (ev.type === 'error') kind = 'error';
     Fx.toast({ kind, title, body: ev.message, ttl: ev.type === 'closed' ? 7000 : 4500 });
     if (ev.type === 'closed') {
@@ -1058,6 +1134,16 @@
       const cash = Number($('resetCash').value) || 100000;
       try { await Api.call('resetAccount', { cash }); accountSig = ''; await refreshAccount(); closeModal('settingsModal'); Sound.play('execute'); } catch (e) { Fx.toast({ kind: 'error', title: 'Reset failed', body: e.message }); }
     });
+    let lastFocusSync = 0;
+    const syncOnReturn = () => {
+      if (document.hidden || !syncSt || !syncSt.linked || Date.now() - lastFocusSync < 10000) return;
+      lastFocusSync = Date.now();
+      Api.call('syncNow').then((x) => { syncSt = x; }).catch(() => {});
+    };
+    addEventListener('focus', syncOnReturn);
+    document.addEventListener('visibilitychange', syncOnReturn);
+    loadSync();
+    setInterval(() => { if (!$('settingsModal').hidden) loadSync(); }, 4000);
     $('ideaRefreshBtn').addEventListener('click', () => refreshIdea(true));
     $('ideaPreviewBtn').addEventListener('click', () => { st.preview = !st.preview; setPref('preview', st.preview); drawTrades(); });
   }
@@ -1133,7 +1219,96 @@
     renderGuard();
     renderSellSeg();
     $('profileTable').innerHTML = profileTableHtml();
+    renderSync(true); loadSync();
     openModal('settingsModal');
+  }
+
+  // ---------- sync codes: Get my code / Enter a code (Settings) ----------
+  // The engine (core/sync.js) does the uploading and downloading; this is just the panel. The same
+  // box takes the Beast Mode code.
+  let syncSt = null; let joinArmed = false; let codeShown = false;
+  async function loadSync() {
+    try { syncSt = await Api.call('syncStatus'); } catch (e) { syncSt = { available: false }; }
+    if (!$('settingsModal').hidden) renderSync();
+  }
+  function agoTxt(ms) {
+    const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+    return s < 10 ? 'just now' : s < 60 ? s + ' s ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : new Date(ms).toLocaleString();
+  }
+  function renderSync(force) {
+    const box = $('syncBox');
+    const s = syncSt || { available: true, linked: false };
+    if (!force && document.activeElement && document.activeElement.id === 'codeInput') return; // don't redraw under someone typing
+    let mine;
+    if (!s.available) mine = '<p class="sync-fine">Sync is not available in this version.</p>';
+    else if (!s.linked) {
+      mine = '<div class="sync-get"><div><b>Get my code</b><span>Saves this paper account online and gives you a code. Type the code on your phone or PC to pick up your trades and history there.</span></div><button class="primary-btn" id="codeGet" data-sound="none"><span>Get my code</span></button></div>';
+    } else {
+      const code = codeShown ? esc(s.code) : esc(s.code.slice(0, 4)) + '-••••';
+      mine = '<div class="sync-linked"><div class="sync-code-wrap"><span class="sync-lbl">Your code</span><b class="sync-code num' + (codeShown ? '' : ' masked') + '">' + code + '</b>' +
+        '<button class="icon-btn sm" id="codeShow" title="' + (codeShown ? 'Hide' : 'Show') + ' the code" data-sound="toggle"><span class="ico" data-icon="eye"></span></button>' +
+        '<button class="icon-btn sm" id="codeCopy" title="Copy the code" data-sound="none"><span class="ico" data-icon="copy"></span></button></div>' +
+        '<div class="sync-state ' + (s.error ? 'bad' : 'ok') + '"><i></i><span>' + (s.error ? esc(s.error) : s.pending ? 'Uploading your latest changes…' : 'In sync with your other devices' + (s.lastSync ? ' · ' + agoTxt(s.lastSync) : '')) + '</span></div>' +
+        '<div class="sync-acts"><button class="ghost-btn" id="syncNowBtn" data-sound="click"><span class="ico" data-icon="sync"></span>Sync now</button><button class="link-btn" id="syncOff" data-sound="click">Stop syncing on this device</button></div></div>';
+    }
+    box.innerHTML = mine +
+      '<div class="sync-enter"><label for="codeInput"><b>Enter a code</b><span>Got a code from your other device? Type it here to load your trades on this one.</span></label>' +
+      '<div class="sync-row"><input id="codeInput" placeholder="K7QD-M2XP" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" maxlength="24" aria-label="Code"><button class="ghost-btn" id="codeGo" data-sound="none">Load</button></div><p class="sync-warn" id="codeWarn" hidden></p></div>' +
+      '<p class="sync-fine">Anyone with your code can see and change this paper account, so keep it to yourself and don\'t post it. Only paper-trading data is saved: cash, trades, history and settings. No names, emails or passwords.</p>';
+    Icons.hydrate(box);
+    joinArmed = false;
+    const get = $('codeGet');
+    if (get) get.addEventListener('click', async () => {
+      get.disabled = true; get.querySelector('span').textContent = 'Saving…'; Sound.play('execute');
+      try {
+        syncSt = await Api.call('syncCreate'); codeShown = true; renderSync();
+        Fx.toast({ kind: 'win', title: 'Your code: ' + syncSt.code, body: 'Type it under Settings > Enter a code on your other device. This account now stays in step on both.', ttl: 9000, icon: 'sync' });
+      } catch (e) { get.disabled = false; get.querySelector('span').textContent = 'Get my code'; Sound.play('error'); Fx.toast({ kind: 'error', title: 'Could not make a code', body: e.message }); }
+    });
+    if ($('codeShow')) $('codeShow').addEventListener('click', () => { codeShown = !codeShown; renderSync(); });
+    if ($('codeCopy')) $('codeCopy').addEventListener('click', async () => {
+      try { await navigator.clipboard.writeText(s.code); Sound.play('select'); Fx.toast({ title: 'Code copied', body: s.code, ttl: 2500, icon: 'copy' }); } catch (e) { codeShown = true; renderSync(); }
+    });
+    if ($('syncNowBtn')) $('syncNowBtn').addEventListener('click', async () => {
+      $('syncNowBtn').classList.add('spin');
+      try { syncSt = await Api.call('syncNow'); } catch (e) { /* shown in status */ }
+      renderSync();
+    });
+    if ($('syncOff')) $('syncOff').addEventListener('click', async () => {
+      syncSt = await Api.call('syncUnlink'); codeShown = false; renderSync();
+      Fx.toast({ title: 'Sync stopped on this device', body: 'Your trades stay here. The code still works on your other devices.', icon: 'sync' });
+    });
+    const input = $('codeInput');
+    input.addEventListener('input', () => { if (joinArmed) { joinArmed = false; $('codeGo').classList.remove('armed'); $('codeGo').textContent = 'Load'; $('codeWarn').hidden = true; } });
+    input.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); enterCode(); } });
+    $('codeGo').addEventListener('click', enterCode);
+  }
+  async function enterCode() {
+    const input = $('codeInput'); const go = $('codeGo'); const warn = $('codeWarn');
+    const raw = input.value.trim();
+    if (!raw) { input.focus(); return; }
+    const a = st.account;
+    const isSyncCode = raw.replace(/[^0-9a-z]/gi, '').length === 8;
+    const hasData = a && (a.history.length || a.positions.length || a.orders.length);
+    if (isSyncCode && hasData && !joinArmed) {
+      joinArmed = true;
+      warn.hidden = false; warn.className = 'sync-warn';
+      warn.textContent = 'This swaps the paper account on this device (' + a.history.length + ' closed trades, ' + a.positions.length + ' open) for the one saved under that code. Press Replace to go ahead.';
+      go.textContent = 'Replace'; go.classList.add('armed'); Sound.play('warn');
+      return;
+    }
+    go.disabled = true; go.textContent = 'Loading…';
+    try {
+      const r = await Api.call('enterCode', { code: raw });
+      input.value = '';
+      if (r.kind === 'sync') { syncSt = r.status; codeShown = false; selectSymbol(st.symbol, st.tf, true); }
+      accountSig = ''; await refreshAccount();
+      renderSync(true);
+    } catch (e) {
+      Sound.play('error');
+      go.disabled = false; go.textContent = 'Load'; go.classList.remove('armed'); joinArmed = false;
+      warn.hidden = false; warn.className = 'sync-warn err'; warn.textContent = e.message;
+    }
   }
   function openWelcome() {
     const P = st.catalog.profiles;
@@ -1791,6 +1966,7 @@
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') { e.preventDefault(); openSearch(); return; }
       if (e.key === 'Escape') { document.querySelectorAll('.modal-back:not([hidden])').forEach((m) => { if (m.id !== 'welcomeModal') closeModal(m.id); }); return; }
       if (typing || e.ctrlKey || e.metaKey || e.altKey) return;
+      if (document.querySelector('.modal-back:not([hidden])')) return; // shortcuts are for the main screen only
       const n = Number(e.key);
       if (n >= 1 && n <= 6) { Sound.play('toggle'); selectSymbol(st.symbol, st.catalog.timeframes[n - 1]); }
       else if (e.key === 'b' || e.key === 'B') { st.side = 'buy'; Sound.play('toggle'); segTicket(); fillTicketDefaults(true); }

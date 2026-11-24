@@ -85,12 +85,14 @@
       '<div class="pm-wrap">' +
       '<div class="pm-sec">Your risk style</div><div class="pm-risk" id="pmRisk"></div>' +
       '<div class="pm-sec">Learn and research</div>' +
+      row('quiz', 'quiz', 'Quiz me', 'Multiple-choice trading questions, answers explained') +
       row('learn', 'cap', 'Learn', 'How the strategies work, with replays of real trades') +
       row('research', 'book', 'Research', 'What held up in the backtests and what failed') +
       row('prop', 'trophy', 'Prop challenge', 'Practise a prop firm challenge under its real rules') +
       '<div class="pm-sec">App</div>' +
       row('search', 'search', 'Search markets', 'Stocks, ETFs, crypto, forex and futures') +
       row('theme', 'palette', 'Themes and layout', 'Six looks, from Aurora to Daylight') +
+      row('sync', 'sync', 'Sync code', 'Carry your trades between your phone and PC') +
       row('settings', 'settings', 'Settings', 'Alerts, guard rails, sounds and account reset') +
       '<button class="pm-row" data-act="sound"><span class="pm-ico"><span class="ico" data-icon="sound"></span></span><span class="pm-txt"><b>Sound effects</b><small id="pmSoundTxt">On</small></span><label class="switch"><input type="checkbox" id="pmSound" tabindex="-1"><span></span></label></button>' +
       '<p class="pm-fine">PaperDesk is a simulator. It never connects to a broker or moves real money, and it only watches the market while it is open on your phone. Past results do not predict future results.</p>' +
@@ -103,11 +105,12 @@
       const b = e.target.closest('[data-act]'); if (!b) return;
       const act = b.dataset.act;
       if (act === 'sound') { e.preventDefault(); const s = $('soundBtn'); if (s) s.click(); setTimeout(syncSound, 30); return; }
-      const target = { learn: 'learnBtn', research: 'researchBtn', prop: 'propBtn', search: 'searchBtn', theme: 'themeBtn', settings: 'settingsBtn' }[act];
+      const target = { quiz: 'quizBtn', learn: 'learnBtn', research: 'researchBtn', prop: 'propBtn', search: 'searchBtn', theme: 'themeBtn', settings: 'settingsBtn', sync: 'settingsBtn' }[act];
       closeMore();
       mark(act === 'learn' ? 'more' : base);
       const el = target && $(target);
       if (el) el.click();
+      if (act === 'sync') setTimeout(() => { const r = $('syncSec'); if (r) r.scrollIntoView({ block: 'start' }); }, 120);
     });
   }
   function syncSound() {

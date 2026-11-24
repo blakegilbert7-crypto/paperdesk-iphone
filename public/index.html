@@ -1,0 +1,259 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self' https://api.exchange.coinbase.com; worker-src 'self'; manifest-src 'self'">
+  <title>PaperDesk</title>
+  <link rel="manifest" href="manifest.webmanifest">
+  <meta name="theme-color" content="#0a0d14">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="PaperDesk">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+  <link rel="icon" type="image/png" sizes="32x32" href="icons/favicon-32.png">
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="themes.css">
+  <link rel="stylesheet" href="phone.css">
+  <script src="js/phone-boot.js"></script>
+  <script src="js/theme.js"></script>
+</head>
+<body>
+  <div class="bg-orbs" aria-hidden="true"><i></i><i></i><i></i></div>
+
+  <!-- Title bar -->
+  <header class="titlebar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">
+        <svg viewBox="0 0 32 32"><defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#8b6cff"/><stop offset="1" stop-color="#3fa2ff"/></linearGradient></defs><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="M10 9v14M16 6v20M22 11v10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><rect x="8" y="12" width="4" height="7" rx="1.2" fill="#fff"/><rect x="14" y="10" width="4" height="9" rx="1.2" fill="#fff" opacity=".85"/><rect x="20" y="13" width="4" height="5" rx="1.2" fill="#fff"/></svg>
+      </div>
+      <div class="brand-text"><b>PaperDesk</b><span class="pill pill-paper" title="Everything in PaperDesk is simulated. No real money, no brokerage connection.">PAPER MONEY</span></div>
+    </div>
+
+    <button class="search-btn no-drag" id="searchBtn" data-sound="click">
+      <span class="ico" data-icon="search"></span><span>Search markets</span><kbd>Ctrl K</kbd>
+    </button>
+
+    <div class="tb-right no-drag">
+      <button class="tb-btn tb-top" id="topBtn" data-sound="click" title="The best setups across every market, ranked (T)"><span class="ico" data-icon="podium"></span><span class="tb-txt">Top trades</span></button>
+      <button class="tb-btn tb-learn" id="learnBtn" data-sound="click" title="How the strategies work and why, with replays of real trades (L)"><span class="ico" data-icon="cap"></span><span class="tb-txt">Learn</span></button>
+      <button class="tb-btn" id="researchBtn" data-sound="click" title="36 years of backtests: what held up and what failed"><span class="ico" data-icon="book"></span><span class="tb-txt">Research</span></button>
+      <button class="tb-btn" id="propBtn" data-sound="click" title="Practise a prop firm challenge under its real rules"><span class="ico" data-icon="trophy"></span><span class="tb-txt">Prop challenge</span></button>
+      <div class="acct-chip" id="acctChip" title="Account equity (paper)">
+        <span class="lbl">Equity</span><span class="val num" id="equityVal">$100,000.00</span>
+        <span class="chg num" id="dayPnlVal">+$0.00 today</span>
+      </div>
+      <div class="seg risk-seg" id="riskSeg" role="radiogroup" aria-label="Risk profile">
+        <span class="seg-ind"></span>
+        <button data-v="low" role="radio">Low</button>
+        <button data-v="medium" role="radio">Med</button>
+        <button data-v="high" role="radio">High</button>
+      </div>
+      <button class="icon-btn" id="soundBtn" title="Sound effects (M)" data-sound="toggle"><span class="ico" data-icon="sound"></span></button>
+      <button class="icon-btn" id="themeBtn" title="Themes and layout" data-sound="click"><span class="ico" data-icon="palette"></span></button>
+      <button class="icon-btn" id="settingsBtn" title="Settings" data-sound="click"><span class="ico" data-icon="settings"></span></button>
+    </div>
+    <div class="wc-spacer"></div>
+  </header>
+
+  <main class="layout">
+    <!-- Watchlist -->
+    <aside class="panel watch" id="watchPanel">
+      <div class="market-tabs" id="marketTabs"></div>
+      <div class="market-blurb" id="marketBlurb"></div>
+      <div class="watch-list" id="watchList"></div>
+      <div class="watch-foot">
+        <span class="ico" data-icon="info"></span>
+        <span>Free public data: Yahoo Finance and Coinbase. Futures are about 10 minutes delayed.</span>
+      </div>
+    </aside>
+
+    <!-- Chart + dock -->
+    <section class="center">
+      <div class="panel chart-panel">
+        <div class="chart-head">
+          <div class="sym-block">
+            <div class="sym-line"><h1 id="symTitle">SPY</h1><span class="sym-name" id="symName">S&amp;P 500 ETF</span><span class="status-pill" id="statusPill"><i></i><span>LIVE</span></span></div>
+            <div class="price-line"><span class="big-price num" id="bigPrice">-</span><span class="chg-badge num" id="bigChg">-</span></div>
+          </div>
+          <div class="chart-tools">
+            <div class="seg tf-seg" id="tfSeg"><span class="seg-ind"></span></div>
+            <div class="toggles" id="indToggles">
+              <button class="chip on" data-ind="ema20" data-sound="toggle"><i class="sw" style="--c:var(--s1)"></i>EMA 20</button>
+              <button class="chip on" data-ind="ema50" data-sound="toggle"><i class="sw" style="--c:var(--s2)"></i>EMA 50</button>
+              <button class="chip" data-ind="vwap" data-sound="toggle"><i class="sw" style="--c:var(--s5)"></i>VWAP</button>
+              <button class="chip on" data-ind="volume" data-sound="toggle"><i class="sw" style="--c:var(--muted)"></i>Volume</button>
+            </div>
+          </div>
+        </div>
+        <div class="chart-wrap">
+          <div id="chart"></div>
+          <canvas id="chartOverlay"></canvas>
+          <div class="ohlc-legend num" id="ohlcLegend"></div>
+          <div class="chart-loading" id="chartLoading"><div class="spinner"></div><span>Loading live data…</span></div>
+          <div class="chart-error" id="chartError" hidden></div>
+        </div>
+      </div>
+
+      <div class="panel dock" id="dock">
+        <div class="dock-tabs" id="dockTabs">
+          <span class="tab-ind"></span>
+          <button data-tab="positions" class="active">Positions <b class="count" id="posCount">0</b></button>
+          <button data-tab="orders">Orders <b class="count" id="ordCount">0</b></button>
+          <button data-tab="history">History</button>
+          <button data-tab="performance">Performance</button>
+          <button data-tab="lab">Strategy Lab</button>
+          <div class="dock-actions">
+            <button class="ghost-btn" id="closeAllBtn" data-sound="click"><span class="ico" data-icon="x"></span>Close all</button>
+          </div>
+        </div>
+        <div class="dock-body">
+          <div class="tab-pane active" data-pane="positions" id="positionsPane"></div>
+          <div class="tab-pane" data-pane="orders" id="ordersPane"></div>
+          <div class="tab-pane" data-pane="history" id="historyPane"></div>
+          <div class="tab-pane" data-pane="performance" id="performancePane"></div>
+          <div class="tab-pane" data-pane="lab" id="labPane"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Right column -->
+    <aside class="right">
+      <div class="panel ch-card" id="challengeCard" hidden></div>
+      <div class="panel idea-card" id="ideaCard">
+        <div class="card-head">
+          <div class="card-title"><span class="ico glow" data-icon="spark"></span>Trade idea</div>
+          <div class="card-actions">
+            <button class="icon-btn sm" id="ideaPreviewBtn" title="Show this idea on the chart" data-sound="toggle"><span class="ico" data-icon="eye"></span></button>
+            <button class="icon-btn sm" id="ideaRefreshBtn" title="Re-scan now" data-sound="click"><span class="ico" data-icon="refresh"></span></button>
+          </div>
+        </div>
+        <div id="ideaBody" class="idea-body"></div>
+      </div>
+
+      <div class="panel ticket" id="ticket">
+        <div class="card-head">
+          <div class="card-title"><span class="ico" data-icon="pen"></span>Your own trade</div>
+        </div>
+        <div class="side-toggle" id="sideToggle">
+          <span class="side-ind"></span>
+          <button data-side="buy" class="active" data-sound="toggle">Buy / Long</button>
+          <button data-side="sell" data-sound="toggle">Sell / Short</button>
+        </div>
+        <div class="field-row">
+          <label>Order type</label>
+          <div class="seg mini" id="typeSeg"><span class="seg-ind"></span>
+            <button data-v="market">Market</button><button data-v="limit">Limit</button><button data-v="stop">Stop</button>
+          </div>
+        </div>
+        <div class="field-row" id="priceRow" hidden>
+          <label for="tPrice">Trigger price</label>
+          <div class="input-wrap"><input id="tPrice" type="number" step="any" inputmode="decimal"></div>
+        </div>
+        <div class="field-row">
+          <label>Size by</label>
+          <div class="seg mini" id="sizeSeg"><span class="seg-ind"></span>
+            <button data-v="risk">Risk %</button><button data-v="qty">Quantity</button>
+          </div>
+        </div>
+        <div class="field-row" id="riskRow">
+          <label for="tRisk">Risk per trade</label>
+          <div class="input-wrap suffix"><input id="tRisk" type="number" step="0.1" min="0.1" max="5"><span>%</span></div>
+        </div>
+        <div class="field-row" id="qtyRow" hidden>
+          <label for="tQty">Quantity</label>
+          <div class="input-wrap suffix"><input id="tQty" type="number" step="any" min="0"><span id="qtyUnit">shares</span></div>
+        </div>
+        <div class="field-grid">
+          <div>
+            <label for="tStop">Stop loss</label>
+            <div class="input-wrap"><input id="tStop" type="number" step="any"></div>
+          </div>
+          <div>
+            <label for="tTarget">Take profit</label>
+            <div class="input-wrap"><input id="tTarget" type="number" step="any"></div>
+          </div>
+        </div>
+        <button class="link-btn" id="autoLevelsBtn" data-sound="click"><span class="ico" data-icon="wand"></span>Auto stop &amp; target from volatility (ATR)</button>
+        <div class="preview" id="ticketPreview"></div>
+        <button class="primary-btn buy" id="placeBtn" data-sound="none"><span>Place buy order</span></button>
+      </div>
+    </aside>
+  </main>
+
+  <!-- overlays -->
+  <div class="toasts" id="toasts" aria-live="polite"></div>
+  <canvas id="confetti" aria-hidden="true"></canvas>
+
+  <div class="modal-back" id="searchModal" hidden>
+    <div class="modal search-modal" role="dialog" aria-label="Search markets">
+      <div class="search-input"><span class="ico" data-icon="search"></span><input id="searchInput" placeholder="Search a symbol or name… (BTC, Tesla, EURUSD, Gold)" autocomplete="off"></div>
+      <div class="search-results" id="searchResults"></div>
+    </div>
+  </div>
+
+  <div class="modal-back" id="settingsModal" hidden>
+    <div class="modal settings-modal" role="dialog" aria-label="Settings">
+      <div class="modal-head"><h2>Settings</h2><button class="icon-btn sm" data-close data-sound="click"><span class="ico" data-icon="x"></span></button></div>
+      <div class="set-sec">Theme</div>
+      <div class="th-grid" id="themeGrid"></div>
+      <div class="set-row"><div><b>Layout</b><p id="layoutTip">Where the panels sit. Each theme picks one; you can change it.</p></div><div class="lay-seg" id="layoutSeg"></div></div>
+      <div class="set-sec">Alerts and safety</div>
+      <div class="set-row"><div><b>Sound effects</b><p>Clicks, fills, wins and losses.</p></div><input type="range" id="volSlider" min="0" max="100"></div>
+      <div class="set-row"><div><b>Playbook guard rails</b><p>The rules the research tested with: a daily stop at 70% of your daily loss limit that closes everything, at most 2 US stock-index trades at once, a stop on every trade, and no trade risking more than twice your usual risk.</p><p class="guard-now" id="guardNow"></p></div><label class="switch"><input type="checkbox" id="guardToggle"><span></span></label></div>
+      <div class="set-row stack"><div><b>Sell alerts</b><p id="sellTip"></p></div><div class="lay-seg sell-seg" id="sellSeg"></div></div>
+      <div class="set-row"><div><b>Desktop notifications</b><p>Pop up when a stop or target is hit, or a sell alert fires, while PaperDesk is in the background.</p></div><label class="switch"><input type="checkbox" id="notifToggle"><span></span></label></div>
+      <div class="set-row"><div><b>Reset paper account</b><p>Wipes positions and history and starts over.</p></div>
+        <div class="reset-box"><div class="input-wrap prefix"><span>$</span><input id="resetCash" type="number" value="100000" min="1000" step="1000"></div><button class="danger-btn" id="resetBtn" data-sound="click">Reset</button></div>
+      </div>
+      <div class="profile-table" id="profileTable"></div>
+      <p class="fine">PaperDesk is an educational simulator. It never connects to a broker or moves real money. Backtests use recent free data with simple cost assumptions; past results do not predict future results, and most short-term traders lose money.</p>
+    </div>
+  </div>
+
+  <div class="modal-back tall" id="researchModal" hidden>
+    <div class="modal wide-modal" role="dialog" aria-label="Research">
+      <div class="modal-head"><div><h2>Research: what held up</h2><div class="sub">151 strategy and market tests on up to 36 years of prices, after costs, checked for luck</div></div><button class="icon-btn sm" data-close data-sound="click"><span class="ico" data-icon="x"></span></button></div>
+      <div class="wide-body" id="researchBody"></div>
+    </div>
+  </div>
+
+  <div class="modal-back tall" id="propModal" hidden>
+    <div class="modal wide-modal" role="dialog" aria-label="Prop challenge">
+      <div class="modal-head"><div><h2>Prop firm challenge</h2><div class="sub">Real rules from six popular evaluations, and how often each tested strategy would have passed</div></div><button class="icon-btn sm" data-close data-sound="click"><span class="ico" data-icon="x"></span></button></div>
+      <div class="wide-body" id="propBody"></div>
+    </div>
+  </div>
+
+  <div class="modal-back" id="welcomeModal" hidden>
+    <div class="modal welcome" role="dialog" aria-label="Welcome">
+      <div class="welcome-hero">
+        <div class="logo big" aria-hidden="true"><svg viewBox="0 0 32 32"><rect width="32" height="32" rx="9" fill="url(#lg)"/><path d="M10 9v14M16 6v20M22 11v10" stroke="#fff" stroke-width="2" stroke-linecap="round"/><rect x="8" y="12" width="4" height="7" rx="1.2" fill="#fff"/><rect x="14" y="10" width="4" height="9" rx="1.2" fill="#fff" opacity=".85"/><rect x="20" y="13" width="4" height="5" rx="1.2" fill="#fff"/></svg></div>
+        <h2>Welcome to PaperDesk</h2>
+        <p>You have <b class="num">$100,000</b> of paper money to trade live markets: stocks, crypto, forex and futures. Every trade is simulated. Nothing touches a real account.</p>
+      </div>
+      <h3>Pick your risk style</h3>
+      <div class="welcome-profiles" id="welcomeProfiles"></div>
+      <button class="primary-btn" id="welcomeGo" data-sound="execute"><span>Start trading</span></button>
+    </div>
+  </div>
+
+  <script src="vendor/lightweight-charts.standalone.production.js"></script>
+  <script src="js/icons.js"></script>
+  <script src="js/engine.js"></script>
+  <script src="js/api.js"></script>
+  <script src="js/sound.js"></script>
+  <script src="js/fx.js"></script>
+  <script src="js/chart.js"></script>
+  <script src="js/glossary.js"></script>
+  <script src="js/confirm.js"></script>
+  <script src="js/lesson.js"></script>
+  <script src="js/learn-data.js"></script>
+  <script src="js/learn.js"></script>
+  <script src="js/top.js"></script>
+  <script src="js/app.js"></script>
+  <script src="js/phone.js"></script>
+</body>
+</html>

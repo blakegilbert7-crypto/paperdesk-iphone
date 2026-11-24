@@ -1,0 +1,228 @@
+/* PaperDesk on iPhone: one column, a bottom tab bar, touch-sized controls and notch-safe edges.
+   Everything here is scoped to html.phone (set by js/phone-boot.js on narrow or touch screens), so
+   the desktop layout is untouched. html.phone[data-layout] outranks the four desktop layouts. */
+
+html.phone {
+  --ph-top: env(safe-area-inset-top, 0px);
+  --ph-bot: env(safe-area-inset-bottom, 0px);
+  --ph-l: env(safe-area-inset-left, 0px);
+  --ph-r: env(safe-area-inset-right, 0px);
+  --ph-head: calc(54px + var(--ph-top));
+  --ph-tabs: calc(58px + var(--ph-bot));
+  -webkit-text-size-adjust: 100%;
+}
+html.phone, html.phone body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+html.phone body { display: flex; flex-direction: column; height: 100vh; height: 100dvh; -webkit-tap-highlight-color: transparent; }
+html.phone input, html.phone select, html.phone textarea { font-size: 16px !important; } /* stops iOS zooming on focus */
+html.phone kbd, html.phone .wc-spacer { display: none !important; }
+
+/* ---------- header ---------- */
+html.phone .titlebar { flex: none; height: var(--ph-head); padding: var(--ph-top) calc(10px + var(--ph-r)) 0 calc(12px + var(--ph-l)); gap: 8px; }
+html.phone[data-theme="daylight"] .titlebar { background: linear-gradient(#1b2333 0 var(--ph-top), var(--titlebar) var(--ph-top)); }
+html.phone .brand { gap: 8px; min-width: 0; }
+html.phone .brand .logo svg { width: 28px; height: 28px; }
+html.phone .brand-text { gap: 6px; }
+html.phone .brand-text b { font-size: 16px; }
+html.phone .pill-paper { font-size: 8.5px; padding: 2px 5px; }
+html.phone .tb-right { order: 2; gap: 6px; margin-left: auto; }
+html.phone .tb-right > .tb-btn, html.phone #soundBtn, html.phone #themeBtn, html.phone #settingsBtn { display: none; }
+html.phone .tb-right > #riskSeg { display: none; }
+html.phone .acct-chip { flex-direction: column; align-items: flex-end; gap: 0; padding: 4px 10px; border-radius: 10px; cursor: pointer; }
+html.phone .acct-chip .lbl { display: none; }
+html.phone .acct-chip .val { font-size: 14.5px; line-height: 1.2; }
+html.phone .acct-chip .chg { font-size: 10.5px; line-height: 1.2; }
+html.phone .search-btn { order: 3; width: 40px; height: 40px; min-width: 0; padding: 0; justify-content: center; flex: none; border-radius: 12px; }
+html.phone .search-btn span:nth-child(2) { display: none; }
+html.phone .search-btn .ico { width: 18px; height: 18px; margin: 0; }
+@media (max-width: 370px) { html.phone .pill-paper { display: none; } }
+
+/* ---------- main area: one section at a time ---------- */
+html.phone[data-layout] .layout {
+  display: block; flex: 1; min-height: 0; height: auto; width: auto;
+  padding: 8px calc(8px + var(--ph-r)) 14px calc(8px + var(--ph-l));
+  overflow-y: auto; overflow-x: hidden; -webkit-overflow-scrolling: touch; overscroll-behavior: contain;
+  grid-template-columns: none; grid-template-rows: none; grid-template-areas: none;
+}
+html.phone[data-layout] .watch, html.phone[data-layout] .center, html.phone[data-layout] .right { display: none; grid-area: auto; direction: ltr; }
+
+/* Markets */
+html.phone[data-layout][data-ptab="markets"] .layout { overflow: hidden; padding-bottom: 8px; }
+html.phone[data-layout][data-ptab="markets"] .watch { display: flex; flex-direction: column; height: 100%; }
+html.phone[data-layout] .market-tabs { grid-template-columns: repeat(4, 1fr); width: auto; padding: 10px 10px 6px; border: 0; }
+html.phone[data-layout] .market-tabs button { flex-direction: column; font-size: 11.5px; padding: 9px 2px 8px; }
+html.phone[data-layout] .market-tabs button .ico { width: 20px; height: 20px; }
+html.phone[data-layout] .market-blurb, html.phone[data-layout] .watch-foot { display: flex; }
+html.phone[data-layout] .market-blurb { display: block; }
+html.phone[data-layout] .watch-list { flex: 1; display: block; overflow-y: auto; overscroll-behavior: contain; }
+html.phone[data-layout] .w-row { grid-template-columns: minmax(0, 1fr) 64px auto; padding: 12px 10px; min-height: 54px; }
+html.phone[data-layout] .w-row .sp, html.phone[data-layout] .w-name { display: block; }
+
+/* Trade: chart on top, then the idea and the ticket */
+html.phone[data-layout][data-ptab="trade"] .center { display: block; }
+html.phone[data-layout][data-ptab="trade"] .dock { display: none; }
+html.phone[data-layout] .chart-panel { height: max(330px, 50dvh); }
+html.phone[data-layout][data-ptab="trade"] .right { display: flex; overflow: visible; min-height: auto; margin-top: 10px; padding: 0; gap: 10px; }
+html.phone .chart-head { align-items: flex-start; gap: 8px; padding: 10px 10px 6px; }
+html.phone .sym-block { min-width: 0; }
+html.phone .sym-line { gap: 8px; flex-wrap: wrap; }
+html.phone .sym-line h1 { font-size: 19px; }
+html.phone .sym-name { max-width: 46vw; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+html.phone .big-price { font-size: 24px; }
+html.phone .chart-tools { width: 100%; flex-direction: row; align-items: center; justify-content: space-between; gap: 8px; overflow-x: auto; scrollbar-width: none; padding-bottom: 2px; }
+html.phone .chart-tools::-webkit-scrollbar { display: none; }
+html.phone .tf-seg { flex: none; }
+html.phone .tf-seg button { min-width: 38px; min-height: 32px; }
+html.phone .toggles { flex-wrap: nowrap; flex: none; }
+html.phone .toggles .chip { white-space: nowrap; min-height: 30px; }
+html.phone .chart-wrap { margin: 0 4px 4px; }
+html.phone .ohlc-legend { font-size: 10px; max-width: 92%; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+html.phone .idea-card, html.phone .ticket, html.phone .ch-card { width: 100%; }
+html.phone .ticket .field-row, html.phone .ticket .field-grid { min-height: 40px; }
+html.phone .ticket input { min-height: 40px; }
+html.phone .seg.mini button, html.phone .side-toggle button { min-height: 36px; }
+html.phone .primary-btn { min-height: 50px; font-size: 15.5px; }
+html.phone .link-btn { min-height: 36px; }
+
+/* Positions: the dock fills the screen; rows become cards */
+html.phone[data-layout][data-ptab="positions"] .layout { overflow: hidden; padding-bottom: 8px; }
+html.phone[data-layout][data-ptab="positions"] .center { display: flex; flex-direction: column; height: 100%; }
+html.phone[data-layout][data-ptab="positions"] .chart-panel { display: none; }
+html.phone[data-layout][data-ptab="positions"] .dock { display: flex; flex: 1; min-height: 0; }
+html.phone .dock-tabs { overflow-x: auto; scrollbar-width: none; flex-wrap: nowrap; padding: 6px 6px 0; }
+html.phone .dock-tabs::-webkit-scrollbar { display: none; }
+html.phone .dock-tabs > button { flex: none; padding: 10px 12px 12px; font-size: 13px; }
+html.phone .dock-actions { flex: none; }
+html.phone .tab-pane { padding: 10px 8px 16px; overscroll-behavior: contain; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid,
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid tbody { display: block; width: 100%; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid thead { display: none; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid tbody tr {
+  display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 9px 10px; margin: 0 0 10px; padding: 12px 12px 10px;
+  border: 1px solid var(--border); border-radius: 14px; background: var(--raise);
+}
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td {
+  display: flex; flex-direction: column; gap: 2px; padding: 0; border: 0; white-space: normal; text-align: left; font-size: 13px; min-width: 0; background: none !important;
+}
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td::before {
+  content: attr(data-label); font-size: 9.5px; font-weight: 600; letter-spacing: .05em; text-transform: uppercase; color: var(--muted);
+}
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td[data-label=""]::before { content: none; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td:first-child { grid-column: 1 / -1; flex-direction: row; align-items: center; gap: 8px; font-size: 15px; font-weight: 700; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td:first-child::before { content: none; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td[data-label=""]:last-child { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; gap: 8px; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td[data-label=""] button { min-height: 38px; padding: 0 16px; font-size: 13px; }
+html.phone #positionsPane table.grid td[data-label^="Stop"] { grid-column: 1 / -1; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) table.grid td[data-label="P&L"] { font-size: 15px; font-weight: 700; }
+html.phone :is(#positionsPane, #ordersPane, #historyPane) .empty { padding: 40px 16px; }
+
+/* ---------- overlays ---------- */
+html.phone .tops, html.phone .learn { top: var(--ph-head); bottom: var(--ph-tabs); }
+html.phone .tp-wrap { padding: 14px calc(12px + var(--ph-r)) 28px calc(12px + var(--ph-l)); }
+html.phone .tp-head { flex-direction: column; gap: 10px; }
+html.phone .tp-head h1 { font-size: 23px; }
+html.phone .tp-actions { flex-wrap: wrap; }
+html.phone .tp-stats { grid-template-columns: repeat(2, 1fr); }
+html.phone .tp-bar { flex-wrap: wrap; gap: 8px; }
+html.phone .tp-filter { overflow-x: auto; flex-wrap: nowrap; scrollbar-width: none; max-width: 100%; }
+html.phone .tp-filter button { flex: none; }
+html.phone .tp-row { grid-template-columns: 34px minmax(0, 1fr) auto; row-gap: 6px; }
+html.phone .tp-row > * { min-width: 0; }
+html.phone .ln-shell { grid-template-columns: 1fr; grid-template-rows: auto minmax(0, 1fr); }
+html.phone .ln-nav { flex-direction: row; overflow-x: auto; overflow-y: hidden; border-right: 0; border-bottom: 1px solid var(--border); padding: 8px; gap: 6px; scrollbar-width: none; }
+html.phone .ln-nav::-webkit-scrollbar { display: none; }
+html.phone .ln-nav > * { flex: none; }
+
+/* modals become sheets */
+html.phone .modal-back { padding: calc(var(--ph-top) + 8px) calc(8px + var(--ph-r)) calc(var(--ph-bot) + 12px) calc(8px + var(--ph-l)); place-items: start stretch; overflow-y: auto; overscroll-behavior: contain; }
+html.phone .modal-back.tall { padding-top: calc(var(--ph-top) + 8px); }
+html.phone .modal, html.phone .wide-modal, html.phone .modal.settings-modal { width: auto; max-width: none; max-height: none; overflow: visible; }
+html.phone .wide-modal .wide-body { overflow-x: auto; }
+html.phone .th-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.phone .set-row { flex-direction: column; align-items: stretch; gap: 10px; padding: 14px 16px; }
+html.phone .set-row > :last-child { align-self: flex-start; }
+html.phone .set-row input[type=range] { width: 100%; }
+html.phone .lay-seg { flex-wrap: wrap; }
+html.phone .search-results { max-height: 60dvh; }
+html.phone .cf-card { max-height: calc(100dvh - var(--ph-top) - var(--ph-bot) - 24px); }
+
+/* toasts drop from the top, full width */
+html.phone .toasts { top: calc(var(--ph-head) + 6px); left: calc(8px + var(--ph-l)); right: calc(8px + var(--ph-r)); width: auto; }
+html.phone .toast { font-size: 13.5px; }
+html.phone .toast b { font-size: 14px; }
+html.phone .toast span { font-size: 12.5px; }
+html.phone .toast-acts { gap: 8px; }
+html.phone .toast-btn { min-height: 38px; padding: 0 14px; font-size: 13px; }
+
+/* ---------- bottom tab bar ---------- */
+.ptabs { display: none; }
+html.phone .ptabs {
+  display: grid; grid-template-columns: repeat(5, 1fr); flex: none; position: relative; z-index: 36;
+  height: var(--ph-tabs); padding: 0 var(--ph-r) var(--ph-bot) var(--ph-l);
+  background: var(--titlebar); border-top: 1px solid var(--border); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+}
+html.phone .ptabs button { position: relative; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 3px; color: var(--muted); font-size: 10.5px; font-weight: 600; transition: color .2s; }
+html.phone .ptabs .pt-ico { width: 24px; height: 24px; display: grid; place-items: center; transition: transform .3s var(--spring); }
+html.phone .ptabs .pt-ico svg { width: 23px; height: 23px; }
+html.phone .ptabs button.on { color: var(--text); }
+html.phone .ptabs button.on .pt-ico { color: var(--a2); transform: translateY(-1px) scale(1.06); }
+html.phone .ptabs button:active .pt-ico { transform: scale(.9); }
+html.phone .pt-badge { position: absolute; top: 5px; left: calc(50% + 6px); min-width: 17px; height: 17px; padding: 0 4px; border-radius: 9px; font-style: normal; font-size: 10px; font-weight: 800; line-height: 17px; text-align: center; color: var(--on-up, #fff); background: var(--up-hi, #22c55e); box-shadow: 0 0 0 2px var(--bg); }
+
+/* ---------- More sheet ---------- */
+.pmore { display: none; }
+html.phone .pmore { display: block; position: fixed; left: 0; right: 0; top: var(--ph-head); bottom: var(--ph-tabs); z-index: 31; overflow-y: auto; overscroll-behavior: contain; background: rgba(var(--deep), .94); backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); animation: lnIn .28s var(--ease) both; }
+html.phone .pmore[hidden] { display: none; }
+html.phone .pmore.out { animation: lnOut .2s var(--ease) both; pointer-events: none; }
+.pm-wrap { padding: 8px calc(12px + var(--ph-r, 0px)) 24px calc(12px + var(--ph-l, 0px)); max-width: 640px; margin: 0 auto; }
+.pm-sec { margin: 16px 4px 8px; font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.pm-risk { padding: 4px; }
+.pm-risk .risk-seg { display: grid !important; grid-template-columns: repeat(3, 1fr); width: 100%; }
+.pm-risk .risk-seg button { min-height: 40px; font-size: 14px; }
+.pm-row { display: flex; align-items: center; gap: 12px; width: 100%; padding: 12px; margin-bottom: 8px; text-align: left; border-radius: 14px; background: var(--panel); border: 1px solid var(--border); color: var(--text); }
+.pm-row:active { transform: scale(.985); }
+.pm-ico { width: 38px; height: 38px; flex: none; display: grid; place-items: center; border-radius: 11px; background: rgba(var(--a2-rgb), .12); color: var(--a2); }
+.pm-ico .ico { width: 19px; height: 19px; }
+.pm-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pm-txt b { font-size: 15px; }
+.pm-txt small { font-size: 12px; color: var(--muted); }
+.pm-chev { width: 18px; height: 18px; color: var(--muted); flex: none; }
+.pm-chev svg { width: 18px; height: 18px; }
+.pm-row .switch { pointer-events: none; }
+.pm-fine { margin: 18px 6px 0; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+
+/* ---------- fixes from the first phone test ---------- */
+html.phone .acct-chip .chg { display: block; }
+html.phone .modal-back, html.phone .cf-back { grid-template-columns: minmax(0, 1fr); }
+html.phone .cf-back { padding: calc(var(--ph-top) + 10px) calc(10px + var(--ph-r)) calc(var(--ph-bot) + 10px) calc(10px + var(--ph-l)); }
+html.phone .cf-card { width: auto; max-width: none; padding: 18px 14px 12px; }
+html.phone .cf-stats { gap: 6px; }
+html.phone .cf-hold, html.phone .cf-card button { min-height: 46px; }
+html.phone .wide-body { padding: 10px 12px 16px; }
+html.phone .rs-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.phone .rs-tiles > :last-child:nth-child(odd) { grid-column: 1 / -1; }
+html.phone .rs-find { grid-template-columns: minmax(0, 1fr); }
+html.phone .rs-grid { grid-template-columns: minmax(0, 1fr); }
+html.phone .rs-detail { position: static; }
+html.phone .rs-tablewrap { max-height: 56dvh; -webkit-overflow-scrolling: touch; }
+html.phone .pp-cards { grid-template-columns: minmax(0, 1fr); }
+html.phone .pt-row { grid-template-columns: minmax(0, 1fr) auto; row-gap: 4px; }
+html.phone .pt-row > :nth-child(n+3) { grid-column: 1 / -1; }
+html.phone .modal-head { gap: 10px; }
+html.phone .modal-head h2 { font-size: 18px; }
+html.phone .tp-row {
+  grid-template-columns: 40px minmax(0, 1fr) auto; gap: 6px 10px; align-items: start;
+  grid-template-areas: "rank sym risk" "rank trade trade" "chips chips open" "why why why";
+}
+html.phone .tp-row:hover { transform: none; }
+html.phone .tp-rank { grid-area: rank; }
+html.phone .tp-sym { grid-area: sym; }
+html.phone .tp-risk { grid-area: risk; text-align: right; }
+html.phone .tp-trade { grid-area: trade; }
+html.phone .tp-cell-chips { grid-area: chips; align-self: center; }
+html.phone .tp-row .tp-rec { display: none; }
+html.phone .tp-row .tp-open { grid-area: open; align-self: center; min-height: 34px; }
+html.phone .tp-row .tp-why { grid-area: why; grid-column: auto; }
+html.phone .tp-hero { grid-template-columns: 54px minmax(0, 1fr); gap: 12px; padding: 14px; }
+html.phone .tp-medal { width: 52px; height: 52px; }
+html.phone .tp-nums { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+html.phone .tp-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }

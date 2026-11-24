@@ -104,7 +104,7 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 }
 .no-drag, .titlebar button, .titlebar input { -webkit-app-region: no-drag; }
 .brand { display: flex; align-items: center; gap: 10px; flex: none; }
-.logo { width: 28px; height: 28px; filter: drop-shadow(0 3px 10px rgba(34, 197, 94, .28)); }
+.logo { width: 28px; height: 28px; filter: drop-shadow(0 3px 8px rgba(0, 0, 0, .35)); }
 .logo svg { width: 100%; height: 100%; }
 .logo.big { width: 64px; height: 64px; margin: 0 auto 10px; animation: float 4s ease-in-out infinite; }
 @keyframes float { 50% { transform: translateY(-6px) rotate(-3deg); } }
@@ -112,12 +112,6 @@ button { font: inherit; color: inherit; background: none; border: 0; cursor: poi
 .brand-text b { font-size: 15px; letter-spacing: -.01em; }
 .pill { font-size: 10px; font-weight: 700; letter-spacing: .08em; padding: 3px 8px; border-radius: 999px; }
 .pill-paper { color: var(--a1-t); background: rgba(var(--a1-rgb), .16); border: 1px solid rgba(var(--a1-rgb), .35); }
-.pill-beast { display: inline-flex; align-items: center; gap: 4px; color: #fff; background: linear-gradient(90deg, #f97316, #ef4444, #f97316); background-size: 200% 100%; border: 1px solid rgba(255, 140, 60, .6); box-shadow: 0 0 14px rgba(249, 115, 22, .45); animation: beastGlow 2.4s linear infinite; }
-.pill-beast .ico svg { width: 11px; height: 11px; }
-.pill-beast[hidden] { display: none; }
-@keyframes beastGlow { to { background-position: -200% 0; } }
-.beast-tag { display: inline-flex; align-items: center; margin-left: 6px; padding: 1px 6px; border-radius: 6px; font-size: 9.5px; font-weight: 800; letter-spacing: .06em; color: #fff; background: linear-gradient(90deg, #f97316, #ef4444); vertical-align: middle; }
-@media (prefers-reduced-motion: reduce) { .pill-beast { animation: none; } }
 
 .search-btn {
   margin-left: 18px; height: 32px; flex: 0 1 260px; min-width: 40px; overflow: hidden; display: flex; align-items: center; gap: 8px; padding: 0 10px;
@@ -1355,4 +1349,5 @@ body.top-open #topBtn { color: #fff; background: rgba(var(--warn-rgb), .13); bor
 .sync-row .ghost-btn.armed { color: #fff; background: var(--down); border-color: var(--down); }
 .sync-warn { margin: 8px 0 0; font-size: 11.5px; line-height: 1.45; color: var(--warn-t); }
 .sync-warn.err { color: var(--down); }
+.sync-warn.ok { color: var(--muted); }
 .sync-fine { margin: 0; font-size: 11px; line-height: 1.45; color: var(--muted); }

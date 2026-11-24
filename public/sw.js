@@ -1,6 +1,6 @@
 /* PaperDesk service worker: keeps the app itself on the phone so it opens instantly and offline.
    Prices always come from the network (the relay is never cached here). */
-const VERSION = 'c2792b6a8bb5';
+const VERSION = '643ec4df427a';
 const FILES = ["./","fonts/Inter.woff2","fonts/LICENSE-Inter.txt","icons/apple-touch-icon.png","icons/favicon-32.png","icons/icon-192.png","icons/icon-512.png","icons/icon-maskable-512.png","index.html","js/api.js","js/app.js","js/chart.js","js/confirm.js","js/engine.js","js/fx.js","js/glossary.js","js/icons.js","js/learn-data.js","js/learn.js","js/lesson.js","js/phone-boot.js","js/phone.js","js/quiz-data.js","js/quiz.js","js/sound.js","js/theme.js","js/top.js","manifest.webmanifest","phone.css","styles.css","themes.css","vendor/LICENSE-lightweight-charts.txt","vendor/lightweight-charts.standalone.production.js"];
 const CACHE = 'paperdesk-' + VERSION;
 

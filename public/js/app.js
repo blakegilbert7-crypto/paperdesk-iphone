@@ -367,6 +367,7 @@
     const skipKey = ideaKey(res);
     if (st.skipped === skipKey) { renderSkipped(res, v); return; }
     const isSkip = v.level === 'skip';
+    const free = !!(st.account && st.account.beast); // the secret code: no "are you sure" step
     const li = (icon, txt, c) => '<li' + (c ? ' class="' + c + '"' : '') + '>' + Icons.ico(icon) + '<span>' + txt + '</span></li>';
     const extra = i.reasons.slice(1).map((r) => li('info', esc(r))).join('') + (i.warnings || []).map((r) => li('alert', esc(r), 'warn')).join('') +
       li('book', '<b>Evidence:</b> ' + esc(i.strategy.evidence) + ' <i style="color:var(--muted)">' + esc(i.strategy.caveat) + '</i>') +
@@ -393,7 +394,7 @@
       '<div class="size-line num"><span>Size</span><b>' + (i.qty ? qtyFmt(res.symbol, i.qty) + ' ' + esc(st.inst[res.symbol].unit) + ' · ' + money(i.notional, 0) : esc(i.sizingNote || 'Too small to size')) + '</b></div>' +
       costBlock(i, res) +
       teach + actions +
-      '<div class="exec-sub">' + (isSkip ? 'Skipping is the app\'s pick here · placing it anyway asks you to confirm' : 'Paper trade against the live price · ' + (st.status && st.status.state === 'closed' && i.entryType === 'market' ? 'market is closed, so this can\'t fill until it opens' : 'stops and targets are watched for you') + ' · E') + '</div>' +
+      '<div class="exec-sub">' + (isSkip && !free ? 'Skipping is the app\'s pick here · placing it anyway asks you to confirm' : 'Paper trade against the live price · ' + (!free && st.status && st.status.state === 'closed' && i.entryType === 'market' ? 'market is closed, so this can\'t fill until it opens' : 'stops and targets are watched for you') + ' · E') + '</div>' +
       whyPanel(i, v, hasLesson) +
       '<details class="more"><summary>Exit plan, evidence and rules</summary><div class="lab-note" style="margin:0 0 8px">' + Icons.ico('target') + ' ' + esc(i.exitPlan) + '</div><ul class="reasons">' + extra + '</ul>' +
       (res.alternatives && res.alternatives.length ? '<div class="alt-list">' + res.alternatives.map((a) => '<span class="alt">' + esc(a.strategy) + ' · ' + (a.side === 'buy' ? 'buy' : 'sell') + ' · ' + a.grade + '</span>').join('') + '</div>' : '') +
@@ -490,7 +491,8 @@
     const res = st.idea; const i = res && res.idea;
     if (!i || !i.qty) return;
     const v = i.verdict;
-    if (v && v.level === 'skip') {
+    const free = !!(st.account && st.account.beast);
+    if (v && v.level === 'skip' && !free) {
       const bt0 = i.backtest || {};
       const ans = await Confirm.ask({
         title: 'Place a trade the app says to skip?', kicker: 'Better to skip', side: i.side,
@@ -603,7 +605,6 @@
     let a;
     try { a = await Api.call('account'); } catch (e) { return; }
     st.account = a;
-    const bb = $('beastBadge'); if (bb && bb.hidden === !!a.beast) bb.hidden = !a.beast;
     renderChallenge(a.challenge);
     Fx.tweenNumber($('equityVal'), a.equity, (v) => money(v));
     const d = $('dayPnlVal');
@@ -634,7 +635,7 @@
     }
     const span = p.target - p.stop;
     const ent = Math.max(0, Math.min(100, (p.entry - p.stop) / span * 100));
-    const pos = Math.max(0, Math.min(100, ((p.lastPrice || p.entry) - p.stop) / span * 100));
+    const pos = Math.max(0, Math.min(100, ((p.markPx != null ? p.markPx : p.lastPrice || p.entry) - p.stop) / span * 100));
     return '<div class="progress" style="--entry:' + ent.toFixed(1) + '%;--pos:' + pos.toFixed(1) + '%" title="Where price is between your stop (left) and target (right)"><em></em><i></i></div>';
   }
 
@@ -646,7 +647,7 @@
     }
     if (structural || !pane.querySelector('table')) {
       pane.innerHTML = '<table class="grid num"><thead><tr><th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Last</th><th class="r">Stop</th><th class="r">Target</th><th>Stop → Target</th><th class="r">P&amp;L</th><th>Source</th><th></th></tr></thead><tbody>' +
-        a.positions.map((p) => '<tr data-id="' + p.id + '"><td><b>' + esc(p.symbol) + '</b>' + (p.beast ? '<span class="beast-tag" title="Placed in Beast Mode: it will close as a winner">BEAST</span>' : '') + '<span class="sell-sig"></span></td><td><span class="side-tag ' + p.side + '">' + p.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(p.symbol, p.qty) + '</td><td class="r">' + px(p.symbol, p.entry) + '</td><td class="r last"></td><td class="r stop">' + px(p.symbol, p.stop) + '</td><td class="r tgt">' + (p.target != null ? px(p.symbol, p.target) : '-') + '</td><td class="prog"></td><td class="r pnl"></td><td>' + (p.source === 'suggested' ? '<span class="src-tag" title="' + esc(p.strategy) + '">' + esc(stratName(p.strategy)) + (p.grade ? ' · ' + p.grade : '') + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r"><button class="row-btn edit" data-act="edit">Edit</button> <button class="row-btn" data-act="close" data-sound="none">Close</button></td></tr>').join('') + '</tbody></table>';
+        a.positions.map((p) => '<tr data-id="' + p.id + '"><td><b>' + esc(p.symbol) + '</b><span class="sell-sig"></span></td><td><span class="side-tag ' + p.side + '">' + p.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(p.symbol, p.qty) + '</td><td class="r">' + px(p.symbol, p.entry) + '</td><td class="r last"></td><td class="r stop">' + px(p.symbol, p.stop) + '</td><td class="r tgt">' + (p.target != null ? px(p.symbol, p.target) : '-') + '</td><td class="prog"></td><td class="r pnl"></td><td>' + (p.source === 'suggested' ? '<span class="src-tag" title="' + esc(p.strategy) + '">' + esc(stratName(p.strategy)) + (p.grade ? ' · ' + p.grade : '') + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r"><button class="row-btn edit" data-act="edit">Edit</button> <button class="row-btn" data-act="close" data-sound="none">Close</button></td></tr>').join('') + '</tbody></table>';
       pane.querySelectorAll('button[data-act]').forEach((b) => b.addEventListener('click', () => {
         const id = Number(b.closest('tr').dataset.id);
         if (b.dataset.act === 'close') closePosition(id, b); else editPosition(id, b.closest('tr'));
@@ -713,7 +714,7 @@
     const a = st.account; const pane = $('historyPane');
     if (!a.history.length) { pane.innerHTML = '<div class="empty">' + Icons.ico('book') + '<b>No closed trades yet</b><span>Every closed paper trade lands here with its result in dollars and R.</span></div>'; Icons.hydrate(pane); return; }
     pane.innerHTML = '<table class="grid num"><thead><tr><th>Closed</th><th>Symbol</th><th>Side</th><th class="r">Qty</th><th class="r">Entry</th><th class="r">Exit</th><th>Exit reason</th><th class="r">P&amp;L</th><th class="r">R</th><th>Source</th><th class="r">Held</th></tr></thead><tbody>' +
-      a.history.map((h) => '<tr><td>' + timeStr(h.closedAt) + '</td><td><b>' + esc(h.symbol) + '</b>' + (h.beast ? '<span class="beast-tag" title="Beast Mode trade: left out of your stats">BEAST</span>' : '') + '</td><td><span class="side-tag ' + h.side + '">' + h.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(h.symbol, h.qty) + '</td><td class="r">' + px(h.symbol, h.entry) + '</td><td class="r">' + px(h.symbol, h.exit) + '</td><td>' + esc(h.reason) + '</td><td class="r ' + cls(h.pnl) + '">' + smoney(h.pnl) + '</td><td class="r ' + cls(h.R) + '">' + (h.R != null ? (h.R >= 0 ? '+' : '') + h.R.toFixed(2) : '-') + '</td><td>' + (h.source === 'suggested' ? '<span class="src-tag">' + esc(stratName(h.strategy)) + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r">' + dur(h.closedAt - h.openedAt) + '</td></tr>').join('') + '</tbody></table>';
+      a.history.map((h) => '<tr><td>' + timeStr(h.closedAt) + '</td><td><b>' + esc(h.symbol) + '</b></td><td><span class="side-tag ' + h.side + '">' + h.side.toUpperCase() + '</span></td><td class="r">' + qtyFmt(h.symbol, h.qty) + '</td><td class="r">' + px(h.symbol, h.entry) + '</td><td class="r">' + px(h.symbol, h.exit) + '</td><td>' + esc(h.reason) + '</td><td class="r ' + cls(h.pnl) + '">' + smoney(h.pnl) + '</td><td class="r ' + cls(h.R) + '">' + (h.R != null ? (h.R >= 0 ? '+' : '') + h.R.toFixed(2) : '-') + '</td><td>' + (h.source === 'suggested' ? '<span class="src-tag">' + esc(stratName(h.strategy)) + '</span>' : '<span class="src-tag manual">Manual</span>') + '</td><td class="r">' + dur(h.closedAt - h.openedAt) + '</td></tr>').join('') + '</tbody></table>';
   }
 
   // ---------- performance ----------
@@ -734,7 +735,7 @@
     }
     $('perfTiles').innerHTML = tile('Equity', money(a.equity, 0), 'started with ' + money(a.startingCash, 0)) + tile('Total P&L', smoney(a.totalPnl, 0), pct(a.totalPnlPct), cls(a.totalPnl)) +
       tile('Win rate', s.all.trades ? s.all.winRate.toFixed(0) + '%' : '-', s.all.trades + ' closed trades') + tile('Profit factor', s.all.profitFactor != null && s.all.trades ? s.all.profitFactor.toFixed(2) : '-', 'gross wins ÷ gross losses') +
-      tile('Avg trade', s.all.avgR != null ? (s.all.avgR >= 0 ? '+' : '') + s.all.avgR.toFixed(2) + 'R' : '-', 'R = multiples of risk', cls(s.all.avgR)) + tile('Best / worst', smoney(s.all.best, 0) + ' / ' + smoney(s.all.worst, 0), a.beastTrades ? '<span class="beast-tag" style="margin:0">BEAST</span> ' + a.beastTrades + ' Beast Mode trade' + (a.beastTrades === 1 ? '' : 's') + ' left out' : '');
+      tile('Avg trade', s.all.avgR != null ? (s.all.avgR >= 0 ? '+' : '') + s.all.avgR.toFixed(2) + 'R' : '-', 'R = multiples of risk', cls(s.all.avgR)) + tile('Best / worst', smoney(s.all.best, 0) + ' / ' + smoney(s.all.worst, 0));
     $('perfVs').innerHTML = cmp('Following ideas', s.suggested) + cmp('Your own trades', s.manual);
     const mh = mistakesHtml(a.mistakes);
     if ($('perfMistakes').dataset.h !== mh) { $('perfMistakes').dataset.h = mh; $('perfMistakes').innerHTML = mh; Icons.hydrate($('perfMistakes')); }
@@ -947,7 +948,7 @@
 
   async function placeManual() {
     const btn = $('placeBtn');
-    const concerns = manualConcerns(st.lastPv);
+    const concerns = st.account && st.account.beast ? [] : manualConcerns(st.lastPv);
     if (concerns.length) {
       const pv = st.lastPv || {};
       const ans = await Confirm.ask({
@@ -999,13 +1000,6 @@
       refreshAccount();
       return;
     }
-    if (ev.type === 'beast') {
-      Fx.toast({ kind: ev.on ? 'win' : '', title: ev.on ? 'BEAST MODE ON' : 'Beast Mode off', body: ev.message, ttl: 7000, icon: 'flame' });
-      Sound.play(ev.sound || 'toggle');
-      if (ev.on) Fx.confetti(innerWidth / 2, innerHeight / 3, 220);
-      accountSig = ''; refreshAccount();
-      return;
-    }
     if (ev.type === 'sync') {
       Fx.toast({ title: 'Synced', body: ev.message, ttl: 6000, icon: 'sync' });
       Sound.play('notify');
@@ -1015,7 +1009,7 @@
     let kind = ''; let title = 'PaperDesk';
     if (ev.type === 'opened') { title = 'Order filled'; kind = ''; }
     if (ev.type === 'order-placed') { title = 'Order working'; }
-    if (ev.type === 'closed') { kind = ev.win ? 'win' : 'loss'; title = ev.trade && ev.trade.beast ? 'Beast Mode win!' : ev.win ? 'Winner!' : 'Trade closed'; }
+    if (ev.type === 'closed') { kind = ev.win ? 'win' : 'loss'; title = ev.win ? 'Winner!' : 'Trade closed'; }
     if (ev.type === 'error') kind = 'error';
     Fx.toast({ kind, title, body: ev.message, ttl: ev.type === 'closed' ? 7000 : 4500 });
     if (ev.type === 'closed') {
@@ -1225,8 +1219,8 @@
 
   // ---------- sync codes: Get my code / Enter a code (Settings) ----------
   // The engine (core/sync.js) does the uploading and downloading; this is just the panel. The same
-  // box takes the Beast Mode code.
-  let syncSt = null; let joinArmed = false; let codeShown = false;
+  // box takes the secret code, which answers with a plain "Code on" / "Code off" and nothing else.
+  let syncSt = null; let joinArmed = false; let codeShown = false; let codeNote = null;
   async function loadSync() {
     try { syncSt = await Api.call('syncStatus'); } catch (e) { syncSt = { available: false }; }
     if (!$('settingsModal').hidden) renderSync();
@@ -1253,7 +1247,7 @@
     }
     box.innerHTML = mine +
       '<div class="sync-enter"><label for="codeInput"><b>Enter a code</b><span>Got a code from your other device? Type it here to load your trades on this one.</span></label>' +
-      '<div class="sync-row"><input id="codeInput" placeholder="K7QD-M2XP" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" maxlength="24" aria-label="Code"><button class="ghost-btn" id="codeGo" data-sound="none">Load</button></div><p class="sync-warn" id="codeWarn" hidden></p></div>' +
+      '<div class="sync-row"><input id="codeInput" placeholder="K7QD-M2XP" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" maxlength="24" aria-label="Code"><button class="ghost-btn" id="codeGo" data-sound="none">Load</button></div>' + (codeNote && Date.now() < codeNote.until ? '<p class="sync-warn ok" id="codeWarn">' + esc(codeNote.text) + '</p>' : '<p class="sync-warn" id="codeWarn" hidden></p>') + '</div>' +
       '<p class="sync-fine">Anyone with your code can see and change this paper account, so keep it to yourself and don\'t post it. Only paper-trading data is saved: cash, trades, history and settings. No names, emails or passwords.</p>';
     Icons.hydrate(box);
     joinArmed = false;
@@ -1302,8 +1296,11 @@
       const r = await Api.call('enterCode', { code: raw });
       input.value = '';
       if (r.kind === 'sync') { syncSt = r.status; codeShown = false; selectSymbol(st.symbol, st.tf, true); }
+      codeNote = r.kind === 'beast' ? { text: r.beast ? 'Code on.' : 'Code off.', until: Date.now() + 8000 } : null;
+      if (r.kind === 'beast') Sound.play('toggle');
       accountSig = ''; await refreshAccount();
       renderSync(true);
+      if (r.kind === 'beast' && st.idea) renderIdea();
     } catch (e) {
       Sound.play('error');
       go.disabled = false; go.textContent = 'Load'; go.classList.remove('armed'); joinArmed = false;

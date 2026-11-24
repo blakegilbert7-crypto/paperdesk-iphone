@@ -240,8 +240,6 @@ html.phone .qm-opt { min-height: 54px; font-size: 15px; }
 html.phone .qm-top { flex-wrap: wrap; }
 html.phone .qm-next { flex: 1; min-width: 0; }
 html.phone .brand { flex: 0 1 auto; }
-html.phone .pill-beast { font-size: 8.5px; padding: 2px 6px; letter-spacing: .05em; }
-html.phone .brand-text:has(.pill-beast:not([hidden])) .pill-paper { display: none; }
 html.phone .sync-box { padding: 4px 0 10px; }
 html.phone .sync-get { flex-direction: column; align-items: stretch; }
 html.phone .sync-get .primary-btn { height: 46px; }

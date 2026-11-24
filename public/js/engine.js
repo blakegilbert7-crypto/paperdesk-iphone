@@ -184,8 +184,10 @@ const US_INDEX = new Set(['SPY', 'QQQ', 'IWM', 'MES', 'MNQ']);
 const SELL_MODES = ['off', 'tested', 'all'];
 // Beast Mode (blake's secret code, entered under Settings > Enter a code): while it is on, every
 // trade placed closes as a winner, at its target or one risk unit (1R) in profit, whichever the
-// real exit beats. It is a toy: those trades are tagged, shown with a BEAST badge and left out of
-// the stats, the mistakes panel and everything else that measures how you trade.
+// real exit beats, and the account's limits are lifted (profile caps, guard rails, the drawdown and
+// daily-loss locks, challenge locks, closed-market market orders). Nothing on screen marks it: the
+// trades look like any other trade. They carry a hidden beast flag so the mistakes panel, ghosts
+// and sell alerts skip them.
 const BEAST_CODE = 'beastmode99898';
 function isBeastCode(code) { return String(code || '').toLowerCase().replace(/\s+/g, '') === BEAST_CODE; }
 const EXIT_WORDS = { 'exit rule': 'its exit rule fired', 'trailing stop': 'price closed past its trailing stop', 'time limit': 'it reached its time limit' };
@@ -279,7 +281,10 @@ class PaperAccount extends EventEmitter {
   }
 
   // ----- valuation -----
+  // A Beast Mode trade is valued at its shown P&L (see beastShownNet), which only ever climbs, so
+  // the position, the account equity and the day's P&L all read green. Its close books at least that.
   unrealized(pos, price) {
+    if (pos.beast && price == null) return (pos.feesPaid || 0) + beastShownNet(pos);
     const inst = getInstrument(pos.symbol);
     const px = price != null ? price : pos.lastPrice != null ? pos.lastPrice : pos.entry;
     return (px - pos.entry) * pos.dir * pos.qty * inst.multiplier * quoteToUsd(inst, px);
@@ -355,8 +360,7 @@ class PaperAccount extends EventEmitter {
   setBeast(on) {
     this.state.beast = !!on;
     this.save();
-    this.emit('event', { type: 'beast', on: this.state.beast, sound: this.state.beast ? 'win' : 'toggle', confetti: this.state.beast,
-      message: this.state.beast ? 'Beast Mode is on: every trade you place now closes as a winner. Those trades are tagged and kept out of your stats.' : 'Beast Mode is off. Trades win and lose for real again.' });
+    this.emit('event', { type: 'beast', quiet: true });
     return { ok: true, beast: this.state.beast };
   }
 
@@ -371,6 +375,10 @@ class PaperAccount extends EventEmitter {
   }
 
   lockedReason() {
+    const why = this.lockCheck();
+    return this.state.beast ? null : why;
+  }
+  lockCheck() {
     const ch = this.state.challenge;
     if (ch) {
       if (ch.status === 'passed') return 'Challenge passed. Start a new challenge or go back to your regular account from the Prop Challenge panel.';
@@ -422,15 +430,19 @@ class PaperAccount extends EventEmitter {
     const stop = params.stop != null && params.stop !== '' ? Number(params.stop) : null;
     const target = params.target != null && params.target !== '' ? Number(params.target) : null;
     const problems = [];
+    const beast = !!this.state.beast;
     if (stop != null && (dir > 0 ? stop >= entry : stop <= entry)) problems.push('Stop loss must be ' + (dir > 0 ? 'below' : 'above') + ' the entry price for a ' + (dir > 0 ? 'buy' : 'sell') + '.');
     if (target != null && (dir > 0 ? target <= entry : target >= entry)) problems.push('Take profit must be ' + (dir > 0 ? 'above' : 'below') + ' the entry price for a ' + (dir > 0 ? 'buy' : 'sell') + '.');
     let qty = params.qty != null && params.qty !== '' ? roundToStep(Number(params.qty), inst.qtyStep) : null;
     let sizing = null;
     if (qty == null) {
-      if (stop == null) problems.push('Set a stop loss so the app can size the trade to your risk, or enter a quantity.');
-      else {
-        sizing = sizePosition({ inst, equity: this.equity(), entry, stop, profile, usedNotional: this.usedNotional(inst.market), riskPct: params.riskPct });
+      if (stop == null && !beast) problems.push('Set a stop loss so the app can size the trade to your risk, or enter a quantity.');
+      else if (stop != null || beast) {
+        // Beast Mode sizes a stop-less trade as if its stop were 1% away, and ignores used buying power.
+        const sizeStop = stop != null ? stop : roundPrice(inst, entry * (1 - dir * 0.01));
+        sizing = sizePosition({ inst, equity: this.equity(), entry, stop: sizeStop, profile, usedNotional: beast ? 0 : this.usedNotional(inst.market), riskPct: params.riskPct });
         qty = sizing.qty;
+        if (!qty && beast) qty = inst.minQty;
         if (!qty && sizing.reason) problems.push(sizing.reason);
       }
     }
@@ -441,11 +453,11 @@ class PaperAccount extends EventEmitter {
     const notional = notionalUsd(inst, entry, qty);
     const lev = leverageFor(profile, inst);
     const room = this.equity() * lev - this.usedNotional(inst.market);
-    if (qty && notional > room + 1e-6) {
+    if (!beast && qty && notional > room + 1e-6) {
       const maxQty = roundToStep(room / (entry * inst.multiplier * q2u), inst.qtyStep);
       problems.push('That is $' + Math.round(notional).toLocaleString('en-US') + ' of ' + inst.market + ' exposure; the ' + profile.name + ' profile allows $' + Math.max(0, Math.round(room)).toLocaleString('en-US') + ' more (' + lev + 'x equity). Max size now: ' + maxQty + ' ' + inst.unit + '.');
     }
-    if (this.guardOn() && qty) {
+    if (!beast && this.guardOn() && qty) {
       if (stop == null) problems.push('Guard rail: set a stop loss. Every playbook trade has one, so a bad trade stays a small loss. (Settings > Playbook guard rails)');
       const cap = this.equity() * profile.riskPct / 100 * GUARD.riskCapMult;
       if (riskUsd != null && riskUsd > cap * 1.001) problems.push('Guard rail: this risks $' + Math.round(riskUsd).toLocaleString('en-US') + ', more than twice your ' + profile.name + ' risk per trade ($' + Math.round(cap).toLocaleString('en-US') + ' cap). Shrink the size or tighten the stop.');
@@ -454,7 +466,7 @@ class PaperAccount extends EventEmitter {
         if (open.length >= GUARD.maxIndexTrades) problems.push('Guard rail: ' + open.length + ' US stock-index trades are already open (' + open.join(', ') + '). The playbook allows ' + GUARD.maxIndexTrades + ' because SPY, QQQ, IWM, MES and MNQ tend to fall together.');
       }
     }
-    if (riskUsd != null && qty) {
+    if (!beast && riskUsd != null && qty) {
       const capUsd = this.equity() * profile.clusterRiskPct / 100;
       const used = this.clusterRisk(inst.market);
       if (used + riskUsd > capUsd * 1.02) {
@@ -467,7 +479,7 @@ class PaperAccount extends EventEmitter {
       riskPctOfEquity: riskUsd != null ? riskUsd / this.equity() * 100 : null,
       estFees: feeUsd(inst, entry, qty) * 2,
       estCost: roundTrip(inst, entry, qty).usd,
-      capped: sizing ? sizing.capped : false,
+      capped: sizing && !beast ? sizing.capped : false,
       problems,
     };
   }
@@ -478,20 +490,21 @@ class PaperAccount extends EventEmitter {
       const profile = getProfile(this.state.profile);
       const locked = this.lockedReason();
       if (locked) throw new Error(locked);
+      const beast = !!this.state.beast;
       const ch = this.state.challenge;
-      if (ch) {
+      if (ch && !beast) {
         const preset = PROP.getPreset(ch.presetId);
         if (preset.markets && !preset.markets.includes(inst.market)) {
           throw new Error(preset.label + ' accounts trade ' + preset.markets.join(' and ') + ' only. Pick a futures contract (or SPY/QQQ, which track the same indexes live).');
         }
       }
       const openCount = this.state.positions.length + this.state.orders.length;
-      if (openCount >= profile.maxPositions) {
+      if (!beast && openCount >= profile.maxPositions) {
         throw new Error('The ' + profile.name + ' profile allows ' + profile.maxPositions + ' open trades/orders at once. Close one first, or switch profile.');
       }
       const type = params.type || 'market';
       const live = await this.livePrice(inst.symbol);
-      if (type === 'market' && live.status && live.status.state === 'closed') {
+      if (!beast && type === 'market' && live.status && live.status.state === 'closed') {
         throw new Error(inst.symbol + ' market is closed right now. Use a limit or stop order, or try crypto (open 24/7).');
       }
       const pv = await this.preview(Object.assign({}, params, { type }));
@@ -574,7 +587,11 @@ class PaperAccount extends EventEmitter {
     if (pos.beast) {
       const w = beastExit(pos, inst, exit);
       exit = w.exit;
-      if (w.forced) reason = pos.target != null ? 'target' : 'beast mode';
+      // never book less than the P&L the trade was showing
+      const shown = beastShownNet(pos);
+      if (netAt(pos, inst, exit) < shown) { exit = priceForNet(pos, inst, shown); w.forced = true; }
+      // a forced win reads like an ordinary exit: a stop-out becomes the target (or a trailed stop)
+      if (w.forced && reason === 'stop') reason = pos.target != null ? 'target' : 'trailing stop';
     }
     const fee = feeUsd(inst, exit, pos.qty);
     const gross = (exit - pos.entry) * pos.dir * pos.qty * inst.multiplier * quoteToUsd(inst, exit);
@@ -600,7 +617,7 @@ class PaperAccount extends EventEmitter {
     this.pushEquity();
     this.save();
     const win = pnl > 0;
-    const label = pos.beast ? 'Beast Mode win' : { target: 'Target hit', stop: 'Stopped out', 'trailing stop': 'Trailing stop hit', 'exit rule': 'Strategy exit', 'close of day': 'Closed at the bell', 'time limit': 'Time exit', 'challenge rule': 'Closed by the challenge rules', 'daily stop': 'Closed by your daily stop', 'beast mode': 'Beast Mode win' }[reason] || 'Closed';
+    const label = { target: 'Target hit', stop: 'Stopped out', 'trailing stop': 'Trailing stop hit', 'exit rule': 'Strategy exit', 'close of day': 'Closed at the bell', 'time limit': 'Time exit', 'challenge rule': 'Closed by the challenge rules', 'daily stop': 'Closed by your daily stop' }[reason] || 'Closed';
     this.emit('event', {
       type: 'closed', symbol: pos.symbol, sound: win ? 'win' : 'loss', win,
       message: label + ': ' + pos.symbol + ' ' + (pnl >= 0 ? '+' : '-') + '$' + Math.abs(pnl).toFixed(2) + (rec.R != null ? ' (' + (rec.R >= 0 ? '+' : '') + rec.R.toFixed(2) + 'R)' : ''),
@@ -779,7 +796,7 @@ class PaperAccount extends EventEmitter {
   // The guard rails' daily stop: at 70% of the profile's daily loss limit, close everything and
   // pause until tomorrow (the limit itself only blocks new trades).
   async guardCheck() {
-    if (!this.guardOn() || this.state.day.guardStopped) return;
+    if (this.state.beast || !this.guardOn() || this.state.day.guardStopped) return;
     const stopUsd = this.guardStopUsd();
     if (this.dayPnl() > -stopUsd) return;
     this.state.day.guardStopped = true;
@@ -925,6 +942,7 @@ class PaperAccount extends EventEmitter {
       const u = this.unrealized(p, last);
       p.mfe = Math.max(p.mfe || 0, u);
       p.mae = Math.min(p.mae || 0, u);
+      if (p.beast) p.beastPeak = Math.max(p.beastPeak || 0, u - (p.feesPaid || 0));
       const exit = levelExit(p, data, p.openedAt, now);
       if (exit) await this._close(p.id, exit.reason, exit.price);
     }
@@ -1026,6 +1044,8 @@ class PaperAccount extends EventEmitter {
         name: inst.name, decimals: inst.decimals, unit: inst.unit,
         upnl, upnlR: p.riskUsd ? upnl / p.riskUsd : null,
         notional: notionalUsd(inst, p.lastPrice || p.entry, p.qty),
+        // where the progress bar sits: the price that matches the P&L shown
+        markPx: p.beast ? p.entry + p.dir * (upnl + (p.feesPaid || 0)) / (p.qty * inst.multiplier * quoteToUsd(inst, p.entry)) : undefined,
       });
     });
     const eq = this.equity();
@@ -1054,11 +1074,11 @@ class PaperAccount extends EventEmitter {
       orders: this.state.orders,
       history: this.state.history.slice(0, 200),
       equityCurve: this.state.equityCurve.slice(-1000).concat([{ time: nowSec(), value: eq }]),
-      // Beast Mode trades are a toy: they never count toward how you trade.
-      stats: tradeStats(this.state.history.filter((h) => !h.beast)),
+      // Beast Mode trades count in the stats like any trade (nothing on screen sets them apart), but
+      // they teach nothing about mistakes, so that panel skips them.
+      stats: tradeStats(this.state.history),
       mistakes: mistakesOf(this.state.history.filter((h) => !h.beast), this.state.ghosts),
       beast: !!this.state.beast,
-      beastTrades: this.state.history.filter((h) => h.beast).length,
     };
   }
 }
@@ -1095,12 +1115,40 @@ function sellState(p, bars, k, i) {
 
 // Beast Mode: the exit price that makes this trade a winner after all costs. The real exit is kept
 // when it already wins by more than the forced one.
+function netAt(pos, inst, x) {
+  return (x - pos.entry) * pos.dir * pos.qty * inst.multiplier * quoteToUsd(inst, x) - feeUsd(inst, x, pos.qty) - (pos.feesPaid || 0);
+}
+// The exit price that books `net` dollars after all costs (rounded so it never books less).
+function priceForNet(pos, inst, net) {
+  let x = pos.entry;
+  for (let k = 0; k < 4; k++) x = pos.entry + pos.dir * (net + feeUsd(inst, x, pos.qty) + (pos.feesPaid || 0)) / (pos.qty * inst.multiplier * quoteToUsd(inst, x));
+  let r = roundPrice(inst, x);
+  const tick = Math.pow(10, -inst.decimals);
+  for (let k = 0; k < 6 && netAt(pos, inst, r) < net - 0.005; k++) r = roundPrice(inst, r + pos.dir * tick);
+  return r;
+}
+// What a Beast Mode trade is guaranteed to close with: its target, or +1R, after costs.
+function beastWinNet(pos, inst) {
+  return netAt(pos, inst, beastExit(pos, inst, pos.entry).exit);
+}
+// Beast Mode's live P&L: it opens a little green and only ever climbs (at an uneven, live-looking
+// pace) toward the guaranteed win. If the real price ever showed more, that peak holds instead.
+function beastShownNet(pos, now) {
+  const inst = getInstrument(pos.symbol);
+  const win = Math.max(0.01, beastWinNet(pos, inst));
+  const t = Math.max(0, (now != null ? now : Date.now() / 1000) - (pos.openedAt || 0));
+  const k = (Number(pos.id) || 0) % 7;
+  // warped clock: always moving forward (its rate stays above 0), just not at a steady speed
+  const tau = t + 4 * (Math.sin(t / 5 + k) - Math.sin(k)) + 2 * (Math.sin(t / 13 + 2 * k) - Math.sin(2 * k));
+  const f = 0.03 + 0.8 * (1 - Math.exp(-tau / 900)) + 0.15 * (1 - Math.exp(-tau / 14400));
+  return Math.max(win * f, pos.beastPeak || 0);
+}
 function beastExit(pos, inst, realExit) {
   const dir = pos.dir;
   const stop0 = pos.stop0 != null ? pos.stop0 : pos.stop;
   const oneR = stop0 != null && Math.abs(pos.entry - stop0) > 0 ? Math.abs(pos.entry - stop0) : pos.entry * 0.01;
   let want = pos.target != null && (pos.target - pos.entry) * dir > 0 ? pos.target : pos.entry + dir * oneR;
-  const pnlAt = (x) => (x - pos.entry) * dir * pos.qty * inst.multiplier * quoteToUsd(inst, x) - feeUsd(inst, x, pos.qty) - (pos.feesPaid || 0);
+  const pnlAt = (x) => netAt(pos, inst, x);
   // make sure the costs can't turn it into a loss
   for (let k = 0; k < 8 && pnlAt(roundPrice(inst, want)) <= 0; k++) want += dir * oneR;
   want = roundPrice(inst, want);
@@ -1179,7 +1227,7 @@ function tradeStats(history) {
   return out;
 }
 
-module.exports = { isBeastCode, beastExit, stratDecision, sellState, PaperAccount, tradeStats, mistakesOf, usCloseUtc, DEFAULT_CASH };
+module.exports = { isBeastCode, beastExit, beastShownNet, stratDecision, sellState, PaperAccount, tradeStats, mistakesOf, usCloseUtc, DEFAULT_CASH };
 
 }, {"fs":"web/shims/fs.js","path":"web/shims/path.js","events":"web/shims/events.js","./markets":"core/markets.js","./costs":"core/costs.js","./risk":"core/risk.js","./data":"core/data.js","./strategies":"core/strategies.js","./time":"core/time.js","./prop":"core/prop.js","./exits":"core/exits.js"}],
 "web/shims/fs.js": [function (module, exports, require) {

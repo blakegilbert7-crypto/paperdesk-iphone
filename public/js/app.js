@@ -675,9 +675,11 @@
     const s = st.catalog.strategies.find((x) => x.id === id);
     return s ? s.name : 'Idea';
   }
+  // the P&L the positions panel is showing for a trade right now
+  function shownPnl(id) { const p = st.account && st.account.positions.find((x) => x.id === Number(id)); return p ? p.upnl : undefined; }
   async function closePosition(id, btn) {
     btn.disabled = true;
-    try { await Api.call('closePosition', { id }); await refreshAccount(); } catch (e) { Sound.play('error'); Fx.toast({ kind: 'error', title: 'Could not close', body: e.message }); btn.disabled = false; }
+    try { await Api.call('closePosition', { id, shown: shownPnl(id) }); await refreshAccount(); } catch (e) { Sound.play('error'); Fx.toast({ kind: 'error', title: 'Could not close', body: e.message }); btn.disabled = false; }
   }
   function editPosition(id, tr) {
     const p = st.account.positions.find((x) => x.id === id);
@@ -834,7 +836,7 @@
     });
     $('closeAllBtn').addEventListener('click', async () => {
       if (!st.account || !st.account.positions.length) { Fx.toast({ title: 'Nothing to close', body: 'You have no open trades.' }); return; }
-      try { const r = await Api.call('closeAll'); Fx.toast({ title: 'Closed ' + r.closed + ' trade' + (r.closed === 1 ? '' : 's'), body: 'All positions flattened at market.' }); refreshAccount(); } catch (e) { Fx.toast({ kind: 'error', title: 'Close all failed', body: e.message }); }
+      try { const shownById = {}; (st.account ? st.account.positions : []).forEach((p) => { shownById[p.id] = p.upnl; }); const r = await Api.call('closeAll', { shownById }); Fx.toast({ title: 'Closed ' + r.closed + ' trade' + (r.closed === 1 ? '' : 's'), body: 'All positions flattened at market.' }); refreshAccount(); } catch (e) { Fx.toast({ kind: 'error', title: 'Close all failed', body: e.message }); }
     });
     requestAnimationFrame(() => Fx.seg($('dockTabs'), st.dock));
   }
@@ -1057,7 +1059,7 @@
   async function sellFromAlert(ev, btn) {
     btn.disabled = true;
     try {
-      await Api.call('closePosition', { id: ev.id });
+      await Api.call('closePosition', { id: ev.id, shown: shownPnl(ev.id) });
       dropSellToasts(ev.id);
       refreshAccount();
     } catch (e) {

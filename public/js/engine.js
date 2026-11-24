@@ -183,8 +183,8 @@ const US_INDEX = new Set(['SPY', 'QQQ', 'IWM', 'MES', 'MNQ']);
 // exits (the ones the research tested); 'off' never alerts.
 const SELL_MODES = ['off', 'tested', 'all'];
 // Beast Mode (blake's secret code, entered under Settings > Enter a code): while it is on, every
-// trade placed closes as a winner, at its target or one risk unit (1R) in profit, whichever the
-// real exit beats, and the account's limits are lifted (profile caps, guard rails, the drawdown and
+// trade placed shows a live P&L that starts green and only climbs, and closes at exactly the P&L
+// on screen at that moment, and the account's limits are lifted (profile caps, guard rails, the drawdown and
 // daily-loss locks, challenge locks, closed-market market orders). Nothing on screen marks it: the
 // trades look like any other trade. They carry a hidden beast flag so the mistakes panel, ghosts
 // and sell alerts skip them.
@@ -569,11 +569,12 @@ class PaperAccount extends EventEmitter {
     return pos;
   }
 
-  closePosition(id, reason, priceOverride) {
-    return this.exclusive(async () => this._close(id, reason || 'manual', priceOverride));
+  // `shown`: the P&L the screen showed when Close was pressed (only used for Beast Mode trades).
+  closePosition(id, reason, priceOverride, shown) {
+    return this.exclusive(async () => this._close(id, reason || 'manual', priceOverride, shown));
   }
 
-  async _close(id, reason, priceOverride) {
+  async _close(id, reason, priceOverride, shownOnScreen) {
     const idx = this.state.positions.findIndex((p) => p.id === Number(id));
     if (idx < 0) throw new Error('Position not found (maybe it already closed).');
     const pos = this.state.positions[idx];
@@ -585,13 +586,15 @@ class PaperAccount extends EventEmitter {
     }
     let exit = roundPrice(inst, raw - pos.dir * slippage(inst, raw));
     if (pos.beast) {
-      const w = beastExit(pos, inst, exit);
-      exit = w.exit;
-      // never book less than the P&L the trade was showing
-      const shown = beastShownNet(pos);
-      if (netAt(pos, inst, exit) < shown) { exit = priceForNet(pos, inst, shown); w.forced = true; }
-      // a forced win reads like an ordinary exit: a stop-out becomes the target (or a trailed stop)
-      if (w.forced && reason === 'stop') reason = pos.target != null ? 'target' : 'trailing stop';
+      // Book exactly the P&L the screen was showing (the last value the app drew, if it is fresh),
+      // at the exit price that gives it. A stop hit then reads like a trailed stop locking in a gain.
+      const seen = this.beastSeen && this.beastSeen.get(pos.id);
+      const now = beastShownNet(pos);
+      const ok = (v) => Number.isFinite(v) && v > 0 && v <= now + 0.01;
+      const shown = ok(Number(shownOnScreen)) ? Number(shownOnScreen) : seen && Date.now() - seen.at < 5000 && ok(seen.v) ? seen.v : now;
+      exit = priceForNet(pos, inst, shown);
+      if (reason === 'stop') reason = 'trailing stop';
+      if (this.beastSeen) this.beastSeen.delete(pos.id);
     }
     const fee = feeUsd(inst, exit, pos.qty);
     const gross = (exit - pos.entry) * pos.dir * pos.qty * inst.multiplier * quoteToUsd(inst, exit);
@@ -1047,6 +1050,7 @@ class PaperAccount extends EventEmitter {
         // where the progress bar sits: the price that matches the P&L shown
         markPx: p.beast ? p.entry + p.dir * (upnl + (p.feesPaid || 0)) / (p.qty * inst.multiplier * quoteToUsd(inst, p.entry)) : undefined,
       });
+      if (p.beast) (this.beastSeen || (this.beastSeen = new Map())).set(p.id, { v: upnl, at: Date.now() });
     });
     const eq = this.equity();
     const used = this.usedNotional();
@@ -1118,14 +1122,12 @@ function sellState(p, bars, k, i) {
 function netAt(pos, inst, x) {
   return (x - pos.entry) * pos.dir * pos.qty * inst.multiplier * quoteToUsd(inst, x) - feeUsd(inst, x, pos.qty) - (pos.feesPaid || 0);
 }
-// The exit price that books `net` dollars after all costs (rounded so it never books less).
+// The exit price that books exactly `net` dollars after all costs. Not rounded to the price tick,
+// so the booked P&L matches the shown one to the cent.
 function priceForNet(pos, inst, net) {
   let x = pos.entry;
-  for (let k = 0; k < 4; k++) x = pos.entry + pos.dir * (net + feeUsd(inst, x, pos.qty) + (pos.feesPaid || 0)) / (pos.qty * inst.multiplier * quoteToUsd(inst, x));
-  let r = roundPrice(inst, x);
-  const tick = Math.pow(10, -inst.decimals);
-  for (let k = 0; k < 6 && netAt(pos, inst, r) < net - 0.005; k++) r = roundPrice(inst, r + pos.dir * tick);
-  return r;
+  for (let k = 0; k < 8; k++) x = pos.entry + pos.dir * (net + feeUsd(inst, x, pos.qty) + (pos.feesPaid || 0)) / (pos.qty * inst.multiplier * quoteToUsd(inst, x));
+  return x;
 }
 // What a Beast Mode trade is guaranteed to close with: its target, or +1R, after costs.
 function beastWinNet(pos, inst) {
@@ -3187,14 +3189,15 @@ function createApi(account) {
       getInstrument(params.symbol);
       return account.placeOrder(params);
     },
-    async closePosition({ id }) {
-      return account.closePosition(id, 'manual');
+    // `shown` / `shownById`: the P&L on screen when Close was pressed, so the close books that.
+    async closePosition({ id, shown }) {
+      return account.closePosition(id, 'manual', undefined, shown);
     },
-    async closeAll() {
+    async closeAll({ shownById } = {}) {
       const ids = account.state.positions.map((p) => p.id);
       const out = [];
       for (const id of ids) {
-        try { out.push(await account.closePosition(id, 'manual')); } catch (e) { /* already closed */ }
+        try { out.push(await account.closePosition(id, 'manual', undefined, shownById ? shownById[id] : undefined)); } catch (e) { /* already closed */ }
       }
       return { closed: out.length };
     },

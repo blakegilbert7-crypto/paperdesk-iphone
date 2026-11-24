@@ -1,0 +1,7 @@
+{
+  // Cloudflare Workers config for PaperDesk for iPhone. The name must match the Worker in Cloudflare.
+  "name": "paperdesk-iphone",
+  "main": "worker/index.js",
+  "compatibility_date": "2025-06-01",
+  "assets": { "directory": "./public", "binding": "ASSETS" }
+}

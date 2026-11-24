@@ -8,7 +8,7 @@ predict future results.
 
 ## Install on your iPhone
 
-1. Open the site's address (for example `https://paperdesk-iphone.pages.dev`) in **Safari**.
+1. Open **https://paperdesk-iphone.blakegilbert7.workers.dev** in **Safari**.
 2. Tap the **Share** button, then **Add to Home Screen**, then **Add**.
 3. Open PaperDesk from the new icon. It runs full screen like a normal app.
 
@@ -20,16 +20,15 @@ missed and fills any stop or target that was hit while it was closed.
 
 ## How it is hosted
 
-Cloudflare Pages serves this repository. Settings:
+Cloudflare serves this repository as a Worker with static assets (`wrangler.jsonc`):
 
-- Framework preset: **None**
-- Build command: *(leave empty)*
-- Build output directory: **public**
+- `public/` is the app.
+- `worker/index.js` answers `/relay` and hands every other request to the app files.
+- `functions/relay.js` holds the relay itself (it also works as a Cloudflare Pages Function).
 
-`functions/relay.js` runs at `/relay`. Yahoo Finance does not let web pages read its public chart data
-directly, so the app asks this relay. It forwards only Yahoo's public chart and spark endpoints, keeps no
-logs or accounts, and caches answers for a few seconds. Crypto prices come straight from Coinbase's public
-API.
+Yahoo Finance does not let web pages read its public chart data directly, so the app asks the relay. It
+forwards only Yahoo's public chart and spark endpoints, keeps no logs or accounts, and caches answers for a
+few seconds. Crypto prices come straight from Coinbase's public API.
 
 Every push to `main` goes live automatically. The app picks up the new version the next time it is opened.
 
